@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::fs::File;
 use std::iter::{Map, Zip};
 use std::slice::Iter;
@@ -518,6 +519,8 @@ fn print_std_dev_for_metrics()
 #[test]
 #[ignore]
 fn print_3d_images_for_optimizers() {
+    let root_dir = get_root_dir();
+
     let mut test_problems = vec![];
 
     for n_var in vec![4, 7, 15, 20, 30]
@@ -535,12 +538,14 @@ fn print_3d_images_for_optimizers() {
         ],
     );
 
-    problem_solver.calc_best_solutions_and_print_to_3d_plots(std::path::Path::new("D:/tmp/test_optimizers/images"));
+    problem_solver.calc_best_solutions_and_print_to_3d_plots(std::path::Path::new(&get_images_dir(root_dir.as_str())));
 }
 
 #[test]
 #[ignore]
 fn calc_output_metric_for_optimizers() {
+    let root_dir = get_root_dir();
+
     let mut test_problems = vec![];
 
     for n_var in vec![4, 7, 15, 20, 30]
@@ -568,6 +573,26 @@ fn calc_output_metric_for_optimizers() {
     );
 
     problem_solver.calc_metric_and_save_to_file(10,
-                                                std::path::Path::new("D:/tmp/test_optimizers/self_metric_results"),
-                                                std::path::Path::new("D:/tmp/test_optimizers/metrics"));
+                                                std::path::Path::new(&get_self_metric_results_dir(root_dir.as_str())),
+                                                std::path::Path::new(&get_metrics_dir(root_dir.as_str())));
+}
+
+fn get_images_dir(root: &str) -> String
+{
+    String::from(root) + "/images"
+}
+
+fn get_self_metric_results_dir(root: &str) -> String
+{
+    String::from(root) + "/self_metric_results"
+}
+
+fn get_metrics_dir(root: &str) -> String
+{
+    String::from(root) + "/metrics"
+}
+
+fn get_root_dir() -> String
+{
+    env::var("OUTPUT_DIRECTORY").unwrap_or("D:/tmp/test_optimizers".to_string())
 }
