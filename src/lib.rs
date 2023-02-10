@@ -1,8 +1,8 @@
 mod array_solution;
 mod ens_nondominating_sorting;
-mod evaluator;
+pub mod evaluator;
 mod misc;
-mod optimizers;
+pub mod optimizers;
 mod problem;
 #[cfg(test)]
 mod tests;
