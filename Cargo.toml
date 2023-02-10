@@ -3,7 +3,7 @@ name = "sss_moo"
 version = "0.1.0"
 edition = "2021"
 repository = "https://github.com/Tiikara/sss_moo"
-keywords = ["moo", "many-objective optimization"]
+keywords = ["moo", "many objective optimization"]
 description = "SSS Many-Objective Optimization Framework"
 license = "Apache-2.0"
 
