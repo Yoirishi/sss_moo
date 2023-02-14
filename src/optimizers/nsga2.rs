@@ -40,7 +40,7 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
     /// Since an optimization can produce a set of
     /// [Pareto optimal solutions](https://en.wikipedia.org/wiki/Pareto_front),
     /// the optimizer returns an iterator.
-    fn optimize(&mut self, eval: &mut Box<dyn Evaluator>, runtime_solutions_processor: &mut Box<dyn SolutionsRuntimeProcessor<S>>) {
+    fn optimize(&mut self, eval: &mut Box<dyn Evaluator>, runtime_solutions_processor: Box<&mut dyn SolutionsRuntimeProcessor<S>>) {
         let mut rnd = rand::thread_rng();
 
         let pop_size = self.meta.population_size();

@@ -27,7 +27,7 @@ use crate::problem::dtlz::dtlz6::Dtlz6;
 use crate::problem::dtlz::dtlz7::Dtlz7;
 
 fn optimize_and_get_best_solutions(optimizer: &mut Box<dyn Optimizer<ArraySolution>>,
-                                   solutions_runtime_array_processor: &mut Box<dyn SolutionsRuntimeProcessor<ArraySolution>>,
+                                   solutions_runtime_array_processor: Box<&mut dyn SolutionsRuntimeProcessor<ArraySolution>>,
                                    terminate_early_count: usize) -> Vec<(Vec<f64>, ArraySolution)>
 {
     let mut evaluator: Box<(dyn Evaluator)> = Box::new(DefaultEvaluator::new(terminate_early_count));
@@ -156,9 +156,9 @@ impl ProblemsSolver
 
                         println!("Optimizing {} - {}", optimizer.name(), problem.name());
 
-                        let mut solutions_runtime_array_processor: Box<dyn SolutionsRuntimeProcessor<ArraySolution>> = Box::new(SolutionsRuntimeArrayProcessor::new());
+                        let mut solutions_runtime_array_processor = SolutionsRuntimeArrayProcessor::new();
                         let best_solutions = optimize_and_get_best_solutions(&mut optimizer,
-                                                                             &mut solutions_runtime_array_processor,
+                                                                             Box::new(&mut solutions_runtime_array_processor),
                                                                              1000);
 
                         let optimizer_dir = dir.join(optimizer.name()).to_str().unwrap().to_string();
@@ -390,9 +390,9 @@ impl ProblemsSolver
 
                                                 let mut optimizer = optimizer_creator(array_optimizer_params);
 
-                                                let mut solutions_runtime_array_processor: Box<dyn SolutionsRuntimeProcessor<ArraySolution>> = Box::new(SolutionsRuntimeArrayProcessor::new());
+                                                let mut solutions_runtime_array_processor = SolutionsRuntimeArrayProcessor::new();
                                                 let best_solutions = optimize_and_get_best_solutions(&mut optimizer,
-                                                                                                     &mut solutions_runtime_array_processor,
+                                                                                                     Box::new(&mut solutions_runtime_array_processor),
                                                                                                      1000);
 
                                                 let metric = mean_convergence_metric_for_solutions(&problem, &best_solutions);
