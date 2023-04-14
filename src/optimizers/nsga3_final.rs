@@ -1,6 +1,6 @@
-#[cfg(test)]
 mod tests;
-pub mod test_helpers;
+mod test_helpers;
+pub mod dist_matrix;
 
 use peeking_take_while::PeekableExt;
 use rand::prelude::*;
@@ -20,6 +20,7 @@ use rand_distr::num_traits::real::Real;
 use crate::evaluator::Evaluator;
 use crate::{Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
 use crate::ens_nondominating_sorting::ens_nondominated_sorting;
+use crate::optimizers::nsga3_final::dist_matrix::DistMatrix;
 use crate::optimizers::Optimizer;
 
 type SolutionId = u64;
@@ -298,7 +299,7 @@ impl<'a, S> NSGA3Optimizer<'a, S>
         }
 
         let unique_niche = unique_values(&niche_of_individuals);
-        let unique_distances = form_matrix_by_indicies_in_row(&dist_matrix, &unique_niche);
+        let unique_distances = form_matrix_by_indicies_in_dist_matrix(&dist_matrix, &unique_niche);
         let min_of_unique_dist = np_argmin_axis_zero(&unique_distances);
         let closest = unique_values(&min_of_unique_dist);
         let intersections = intersect(&array_of_fronts[0], &closest);
@@ -467,6 +468,20 @@ fn count_unique(niche_of_individuals: &Vec<usize>) -> HashMap<usize, usize> {
 fn form_matrix_by_indicies_in_row(source: &Vec<Vec<f64>>, indicies: &Vec<usize>) -> Vec<Vec<f64>> {
     let mut result = vec![];
     for row in source
+    {
+        let mut temp_row = vec![];
+        for index in indicies
+        {
+            temp_row.push(row[*index])
+        }
+        result.push(temp_row)
+    }
+    result
+}
+
+fn form_matrix_by_indicies_in_dist_matrix(source: &DistMatrix, indicies: &Vec<usize>) -> Vec<Vec<f64>> {
+    let mut result = vec![];
+    for row in source.iter()
     {
         let mut temp_row = vec![];
         for index in indicies
@@ -927,17 +942,17 @@ fn concatenate_matrix_rows<T: Copy>(matrix: &Vec<Vec<T>>) -> Vec<T> {
 }
 
 
-fn associate_to_niches(points: &Vec<Vec<f64>>, niches: &Vec<Vec<f64>>, ideal_point: &Vec<f64>, nadir_point: &Vec<f64>)
-    -> (Vec<usize>, Vec<f64>, Vec<Vec<f64>>)
+fn associate_to_niches<'a>(points: &'a Vec<Vec<f64>>, niches: &'a Vec<Vec<f64>>, ideal_point: &Vec<f64>, nadir_point: &Vec<f64>)
+                       -> (Vec<usize>, Vec<f64>, DistMatrix<'a>)
 {
     let mut denom = get_arithmetic_result_between_vectors(&nadir_point, &ideal_point, |a, b| a - b);
     denom = replace_zero_coordinates_in_point(&denom, |a| *a == 0., 1e-12);
     let normalized = get_difference_between_matrix_and_vector(&points, ideal_point);
-    let distance_matrix = calc_perpendicular_distance(&normalized, &niches);
-    let niche_of_individual = np_argmin_axis_one(&distance_matrix);
+    let distance_matrix = DistMatrix::new(normalized, &niches);
+    let niche_of_individual = min_distances_indicies(&distance_matrix);
     let points_count = points.len();
     let arranged_by_points_count = np_arrange_by_zero_to_target(points_count);
-    let dist_to_niches = get_values_from_matrix_by_row_indicies_and_column_indicies(
+    let dist_to_niches = get_values_from_dist_matrix_by_row_indicies_and_column_indicies(
         &distance_matrix,
         &arranged_by_points_count,
         &niche_of_individual);
@@ -1010,6 +1025,11 @@ fn calc_perpendicular_distance(n: &Vec<Vec<f64>>, ref_dirs: &Vec<Vec<f64>>) -> V
     let matrix = reshape_vector_into_matrix(&val, ref_dirs.len());
 
     matrix
+}
+
+fn calc_perpendicular_distance_matrix<'a>(n: Vec<Vec<f64>>, ref_dirs: &'a Vec<Vec<f64>>) -> DistMatrix<'a>
+{
+    DistMatrix::new(n, ref_dirs)
 }
 
 fn np_tile<T: Copy>(source: &Vec<Vec<T>>, length: usize) -> Vec<Vec<T>>
@@ -1217,6 +1237,27 @@ fn np_argmin_axis_one<T: Copy + PartialOrd>(matrix: &Vec<Vec<T>>) -> Vec<usize>
     min_indices
 }
 
+fn min_distances_indicies(matrix: &DistMatrix) -> Vec<usize>
+{
+    let mut min_indices = Vec::with_capacity(matrix.len());
+
+    for row in matrix.iter() {
+        let mut min_index = 0;
+        let mut min_value = row[0];
+
+        for (index, &value) in row.iter().enumerate().skip(1) {
+            if value < min_value {
+                min_index = index;
+                min_value = value;
+            }
+        }
+
+        min_indices.push(min_index);
+    }
+
+    min_indices
+}
+
 fn get_difference_between_matrix_and_vector<T:Sub<Output = T> + Copy>(matrix: &Vec<Vec<T>>, substracted_vector: &Vec<T>) -> Vec<Vec<T>>
 {
     let mut result = vec![];
@@ -1243,6 +1284,16 @@ fn get_values_from_matrix_by_row_indicies_and_column_indicies<T:Copy>(matrix: &V
     for (row_index, column_index) in row_indicies.iter().zip(column_indicies)
     {
         result.push(matrix[*row_index][*column_index])
+    }
+    result
+}
+
+fn get_values_from_dist_matrix_by_row_indicies_and_column_indicies(matrix: &DistMatrix, row_indicies: &Vec<usize>, column_indicies: &Vec<usize>) -> Vec<f64>
+{
+    let mut result = Vec::with_capacity(row_indicies.len());
+    for (row_index, column_index) in row_indicies.iter().zip(column_indicies)
+    {
+        result.push(matrix.get_row(*row_index)[*column_index])
     }
     result
 }

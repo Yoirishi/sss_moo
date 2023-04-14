@@ -5,6 +5,7 @@ pub mod nsga2;
 pub mod nsga3_chat_gpt;
 pub mod nsga3_self_impl;
 pub mod reference_directions;
+pub mod nsga3_final;
 
 pub trait Optimizer<S: Solution>
 {
