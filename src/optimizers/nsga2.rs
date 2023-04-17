@@ -151,6 +151,13 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
 
             if extended_solutions_buffer.len() > 0
             {
+                runtime_solutions_processor.new_candidates(
+                    extended_solutions_buffer
+                        .iter_mut()
+                        .map(|mut child| &mut child)
+                        .collect()
+                );
+
                 while let Some(solution) = extended_solutions_buffer.pop()
                 {
                     let id = self.next_id();
