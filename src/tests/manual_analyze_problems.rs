@@ -560,10 +560,10 @@ fn calc_output_metric_for_optimizers() {
         test_problems,
         vec![
             |optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)),
-            |optimizer_params: ArrayOptimizerParams| {
+            /*|optimizer_params: ArrayOptimizerParams| {
                 let count_of_objectives = optimizer_params.objectives().len();
                 Box::new(nsga3_self_impl::NSGA3Optimizer::new(optimizer_params, ReferenceDirections::new(count_of_objectives, count_of_objectives*4).reference_directions))
-            }
+            }*/
         ],
     );
 

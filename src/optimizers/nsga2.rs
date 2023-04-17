@@ -40,36 +40,54 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
     /// Since an optimization can produce a set of
     /// [Pareto optimal solutions](https://en.wikipedia.org/wiki/Pareto_front),
     /// the optimizer returns an iterator.
-    fn optimize(&mut self, eval: &mut Box<dyn Evaluator>, runtime_solutions_processor: Box<&mut dyn SolutionsRuntimeProcessor<S>>) {
+    fn optimize(&mut self, eval: &mut Box<dyn Evaluator>, mut runtime_solutions_processor: Box<&mut dyn SolutionsRuntimeProcessor<S>>) {
         let mut rnd = rand::thread_rng();
 
         let pop_size = self.meta.population_size();
         let crossover_odds = self.meta.crossover_odds();
         let mutation_odds = self.meta.mutation_odds();
 
-        // Initial population
-        let mut pop: Vec<_> = (0..pop_size)
-            .map(|_| {
-                let id = self.next_id();
-                let sol = self.meta.random_solution();
-
-                Candidate {
-                    id,
-                    sol,
-                    front: 0,
-                    distance: 0.0,
-                }
-            })
-            .collect();
-
-        runtime_solutions_processor.new_candidates(
-            pop
-                .iter_mut()
-                .map(|candidate| &mut candidate.sol)
-                .collect()
+        // Buffer
+        let mut child_pop: Vec<Candidate<S>> = Vec::with_capacity(pop_size);
+        let mut extended_solutions_buffer = Vec::with_capacity(
+            runtime_solutions_processor.extend_iteration_population_buffer_size()
+        );
+        let mut parent_pop = Vec::with_capacity(
+            child_pop.capacity() + extended_solutions_buffer.capacity() + self.meta.population_size()
         );
 
-        let mut parent_pop = self.sort(pop);
+        {
+            // Initial population
+            let mut pop: Vec<_> = (0..pop_size)
+                .map(|_| {
+                    let id = self.next_id();
+                    let sol = self.meta.random_solution();
+
+                    Candidate {
+                        id,
+                        sol,
+                        front: 0,
+                        distance: 0.0,
+                    }
+                })
+                .collect();
+
+            runtime_solutions_processor.new_candidates(
+                pop
+                    .iter_mut()
+                    .map(|candidate| &mut candidate.sol)
+                    .collect()
+            );
+
+            let mut sorted = self.nondominating_sort(&pop);
+
+            parent_pop.clear();
+            while let Some(item) = sorted.pop()
+            {
+                parent_pop.push(item);
+            }
+            parent_pop.reverse();
+        }
 
         for iter in 0.. {
             if runtime_solutions_processor.needs_early_stop()
@@ -124,9 +142,40 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
                 break;
             }
 
-            let mut child_pop: Vec<Candidate<S>> = Vec::with_capacity(pop_size);
+            extended_solutions_buffer.clear();
 
-            while child_pop.len() < pop_size {
+            runtime_solutions_processor.extend_iteration_population(&parent_pop.iter_mut()
+                                                                        .map(|child| &mut child.sol)
+                                                                        .collect(),
+                                                                    &mut extended_solutions_buffer);
+
+            if extended_solutions_buffer.len() > 0
+            {
+                while let Some(solution) = extended_solutions_buffer.pop()
+                {
+                    let id = self.next_id();
+
+                    parent_pop.push(Candidate {
+                        id,
+                        front: 0,
+                        distance: 0.0,
+                        sol: solution,
+                    });
+                }
+
+                let mut sorted = self.nondominating_sort(&parent_pop);
+
+                parent_pop.clear();
+                while let Some(item) = sorted.pop()
+                {
+                    parent_pop.push(item);
+                }
+                parent_pop.reverse();
+            }
+
+            child_pop.clear();
+
+            while child_pop.len() < parent_pop.len() {
                 let p1 = parent_pop.choose_mut(&mut rnd).unwrap().clone();
                 let p2 = parent_pop.choose_mut(&mut rnd).unwrap().clone();
                 let p3 = parent_pop.choose_mut(&mut rnd).unwrap().clone();
@@ -161,15 +210,21 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
                     .collect()
             );
 
-            parent_pop.extend(child_pop);
+            while let Some(child_item) = child_pop.pop()
+            {
+                parent_pop.push(child_item);
+            }
 
             // Sort combined population
-            let sorted = self.sort(parent_pop);
+            let mut sorted = self.nondominating_sort(&parent_pop);
+            sorted.truncate(pop_size);
 
-
-            parent_pop = sorted;
-
-            parent_pop.truncate(pop_size)
+            parent_pop.clear();
+            while let Some(item) = sorted.pop()
+            {
+                parent_pop.push(item);
+            }
+            parent_pop.reverse();
         }
     }
 
@@ -184,10 +239,12 @@ impl<'a, S> NSGA2Optimizer<'a, S>
 {
     /// Instantiate a new optimizer with a given meta params
     pub fn new(meta: impl Meta<'a, S> + 'a) -> Self {
+        let pop_size = meta.population_size();
+
         NSGA2Optimizer {
             meta: Box::new(meta),
             last_id: 0,
-            best_solutions: Vec::new(),
+            best_solutions: Vec::with_capacity(pop_size),
         }
     }
 
@@ -217,7 +274,7 @@ impl<'a, S> NSGA2Optimizer<'a, S>
     }
 
     #[allow(clippy::needless_range_loop)]
-    fn sort(&self, pop: Vec<Candidate<S>>) -> Vec<Candidate<S>> {
+    fn nondominating_sort(&self, pop: &Vec<Candidate<S>>) -> Vec<Candidate<S>> {
         let objs = pop.iter()
             .map(|p| self.values(&p.sol))
             .collect();
