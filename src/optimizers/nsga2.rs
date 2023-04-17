@@ -154,7 +154,7 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
                 runtime_solutions_processor.new_candidates(
                     extended_solutions_buffer
                         .iter_mut()
-                        .map(|mut child| &mut child)
+                        .map(|mut child| child)
                         .collect()
                 );
 
