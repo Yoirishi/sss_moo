@@ -25,6 +25,7 @@ pub struct NSGA2Optimizer<'a, S: Solution> {
     meta: Box<dyn Meta<'a, S> + 'a>,
     last_id: SolutionId,
     best_solutions: Vec<(Vec<f64>, S)>,
+    predefined_solutions: Vec<S>,
 }
 
 impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
@@ -71,6 +72,20 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
                     }
                 })
                 .collect();
+
+            for predefined_solution in self.predefined_solutions.clone()
+            {
+                let id = self.next_id();
+
+                pop.push(
+                    Candidate {
+                        id,
+                        sol: predefined_solution,
+                        front: 0,
+                        distance: 0.0,
+                    }
+                );
+            }
 
             runtime_solutions_processor.new_candidates(
                 pop
@@ -252,7 +267,13 @@ impl<'a, S> NSGA2Optimizer<'a, S>
             meta: Box::new(meta),
             last_id: 0,
             best_solutions: Vec::with_capacity(pop_size),
+            predefined_solutions: vec![],
         }
+    }
+
+    pub fn set_predefined_solutions(&mut self, predefined_solutions: Vec<S>)
+    {
+        self.predefined_solutions = predefined_solutions;
     }
 
     fn next_id(&mut self) -> SolutionId {
