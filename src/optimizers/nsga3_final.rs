@@ -55,9 +55,6 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
     fn optimize(&mut self, eval: &mut Box<dyn Evaluator>, runtime_solutions_processor: Box<&mut dyn SolutionsRuntimeProcessor<S>>) {
         //STUB
 
-
-
-
         let mut rnd = thread_rng();
 
         let pop_size = self.meta.population_size();
@@ -96,14 +93,15 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
 
             runtime_solutions_processor.iteration_num(iter);
 
+            self.best_solutions.clear();
             parent_pop
                 .iter()
                 .take_while(|c| c.front == 0)
                 .for_each(|mut c| {
                     let vals: Vec<f64> = self.values(&c.sol);
 
-                    self.best_solutions
-                        .retain(|s| s.0.iter().zip(&vals).any(|(old, new)| old < new));
+                    //self.best_solutions
+                    //    .retain(|s| s.0.iter().zip(&vals).any(|(old, new)| old < new));
 
                     self.best_solutions.push((vals, c.sol.clone()));
                 });
@@ -206,10 +204,12 @@ impl<'a, S> NSGA3Optimizer<'a, S>
     /// Instantiate a new optimizer with a given meta params
     pub fn new(meta: impl Meta<'a, S>+ 'a, ref_dirs: Vec<Vec<f64>>) -> Self {
         let dimension = meta.objectives().len();
+        let pop_size = meta.population_size();
+
         NSGA3Optimizer {
             meta: Box::new(meta),
             last_id: 0,
-            best_solutions: Vec::new(),
+            best_solutions: Vec::with_capacity(pop_size),
             hyper_plane: Hyperplane::new(&dimension),
             ref_dirs
         }
