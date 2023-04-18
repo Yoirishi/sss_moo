@@ -61,6 +61,10 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
         let crossover_odds = self.meta.crossover_odds();
         let mutation_odds = self.meta.mutation_odds();
 
+        let mut extended_solutions_buffer = Vec::with_capacity(
+            runtime_solutions_processor.extend_iteration_population_buffer_size()
+        );
+
         let mut pop: Vec<_> = (0..pop_size)
             .map(|_| {
                 let id = self.next_id();
@@ -160,6 +164,24 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
 
                 child_pop.push(c1);
                 child_pop.push(c2);
+            }
+
+            runtime_solutions_processor.extend_iteration_population(&parent_pop.iter_mut()
+                .map(|child| &mut child.sol)
+                .collect(),
+                                                                    &mut extended_solutions_buffer);
+
+            while let Some(solution) = extended_solutions_buffer.pop()
+            {
+                let id = self.next_id();
+
+                child_pop.push(Candidate {
+                    id,
+                    front: 0,
+                    distance: 0.0,
+                    sol: solution,
+                    niche: 0,
+                });
             }
 
             let mut preprocess_vec = Vec::with_capacity(child_pop.len());
