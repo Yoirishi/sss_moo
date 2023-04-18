@@ -1,4 +1,4 @@
-use rand::seq::SliceRandom;
+/*use rand::seq::SliceRandom;
 use std::convert::identity;
 use rand::{Rng, thread_rng};
 use crate::{Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
@@ -159,7 +159,7 @@ impl<'a, S> Optimizer<S> for AGEMOEA2Optimizer<'a, S>
         "AGE-MOEA-II"
     }
 
-    fn optimize(&mut self, eval: &mut Box<dyn Evaluator>, runtime_solutions_processor: &mut Box<dyn SolutionsRuntimeProcessor<S>>) {
+    fn optimize(&mut self, eval: &mut Box<dyn Evaluator>, runtime_solutions_processor: Box<&mut dyn SolutionsRuntimeProcessor<S>>) {
         let mut rnd = thread_rng();
 
         let pop_size = self.meta.population_size();
@@ -282,4 +282,4 @@ impl<'a, S> Optimizer<S> for AGEMOEA2Optimizer<'a, S>
     fn best_solutions(&self) -> Vec<(Vec<f64>, S)> {
         self.best_solutions.clone()
     }
-}
+}*/
