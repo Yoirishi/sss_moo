@@ -25,3 +25,4 @@ markdown-table = "0.1.0"
 tokio = { version = "1.24.1", features = ["full"] }
 dyn-clone = "1.0.10"
 rand_distr = "0.4.3"
+tempfile = "3.2"
