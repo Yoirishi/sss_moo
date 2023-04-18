@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::fs::File;
 use std::iter::{Map, Zip};
 use std::slice::Iter;
@@ -9,7 +10,7 @@ use plotters::prelude::*;
 use crate::array_solution::{ArrayOptimizerParams, ArraySolution, ArraySolutionEvaluator, SolutionsRuntimeArrayProcessor};
 use crate::evaluator::{DefaultEvaluator, Evaluator};
 use crate::optimizers::nsga2::NSGA2Optimizer;
-use crate::optimizers::{nsga3_self_impl, Optimizer};
+use crate::optimizers::{nsga3_final, nsga3_self_impl, Optimizer};
 use crate::problem::Problem;
 use crate::{Meta, Ratio, SolutionsRuntimeProcessor};
 use std::io::Write;
@@ -518,6 +519,8 @@ fn print_std_dev_for_metrics()
 #[test]
 #[ignore]
 fn print_3d_images_for_optimizers() {
+    let root_dir = get_root_dir();
+
     let mut test_problems = vec![];
 
     for n_var in vec![4, 7, 15, 20, 30]
@@ -531,16 +534,18 @@ fn print_3d_images_for_optimizers() {
         test_problems,
         vec![
             |optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)),
-            |optimizer_params: ArrayOptimizerParams| Box::new(nsga3_self_impl::NSGA3Optimizer::new(optimizer_params, ReferenceDirections::new(3, 12).reference_directions))
+            |optimizer_params: ArrayOptimizerParams| Box::new(nsga3_final::NSGA3Optimizer::new(optimizer_params, ReferenceDirections::new(3, 5).reference_directions))
         ],
     );
 
-    problem_solver.calc_best_solutions_and_print_to_3d_plots(std::path::Path::new("D:/tmp/test_optimizers/images"));
+    problem_solver.calc_best_solutions_and_print_to_3d_plots(std::path::Path::new(&get_images_dir(root_dir.as_str())));
 }
 
 #[test]
 #[ignore]
 fn calc_output_metric_for_optimizers() {
+    let root_dir = get_root_dir();
+
     let mut test_problems = vec![];
 
     for n_var in vec![4, 7, 15, 20, 30]
@@ -560,14 +565,62 @@ fn calc_output_metric_for_optimizers() {
         test_problems,
         vec![
             |optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)),
-            /*|optimizer_params: ArrayOptimizerParams| {
+            |optimizer_params: ArrayOptimizerParams| {
                 let count_of_objectives = optimizer_params.objectives().len();
-                Box::new(nsga3_self_impl::NSGA3Optimizer::new(optimizer_params, ReferenceDirections::new(count_of_objectives, count_of_objectives*4).reference_directions))
-            }*/
+                Box::new(nsga3_final::NSGA3Optimizer::new(optimizer_params, ReferenceDirections::new(count_of_objectives, 5).reference_directions))
+            }
         ],
     );
 
     problem_solver.calc_metric_and_save_to_file(10,
-                                                std::path::Path::new("D:/tmp/test_optimizers/self_metric_results"),
-                                                std::path::Path::new("D:/tmp/test_optimizers/metrics"));
+                                                std::path::Path::new(&get_self_metric_results_dir(root_dir.as_str())),
+                                                std::path::Path::new(&get_metrics_dir(root_dir.as_str())));
+}
+
+fn get_images_dir(root: &str) -> String
+{
+    String::from(root) + "/images"
+}
+
+fn get_self_metric_results_dir(root: &str) -> String
+{
+    String::from(root) + "/self_metric_results"
+}
+
+fn get_metrics_dir(root: &str) -> String
+{
+    String::from(root) + "/metrics"
+}
+
+fn get_root_dir() -> String
+{
+    env::var("OUTPUT_DIRECTORY").unwrap_or("E:/tmp/test_optimizers".to_string())
+}
+
+#[test]
+#[ignore]
+fn das_denis_test() {
+    let mut n_objectives: Vec<usize> = vec![];
+    let mut m_partition: Vec<usize> = vec![];
+    for i in 2..26
+    {
+        n_objectives.push(i);
+        if i < 10
+        {
+            m_partition.push(i)
+        }
+    }
+
+
+    for n in &n_objectives
+    {
+        for m in &m_partition
+        {
+            ReferenceDirections::new(*n, *m);
+        }
+    }
+
+
+
+    assert_eq!(n_objectives.len(),  24)
 }
