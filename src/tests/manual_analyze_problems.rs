@@ -28,7 +28,7 @@ use crate::problem::dtlz::dtlz6::Dtlz6;
 use crate::problem::dtlz::dtlz7::Dtlz7;
 
 fn optimize_and_get_best_solutions(optimizer: &mut Box<dyn Optimizer<ArraySolution>>,
-                                   solutions_runtime_array_processor: &mut Box<dyn SolutionsRuntimeProcessor<ArraySolution>>,
+                                   solutions_runtime_array_processor: Box<&mut dyn SolutionsRuntimeProcessor<ArraySolution>>,
                                    terminate_early_count: usize) -> Vec<(Vec<f64>, ArraySolution)>
 {
     let mut evaluator: Box<(dyn Evaluator)> = Box::new(DefaultEvaluator::new(terminate_early_count));
@@ -133,8 +133,8 @@ impl ProblemsSolver
 
     fn calc_best_solutions_and_print_to_3d_plots(&self, dir: &std::path::Path)
     {
-        let mut multi_threaded_runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
-        // let mut multi_threaded_runtime = tokio::runtime::Builder::new_multi_thread().build().unwrap();
+        // let mut multi_threaded_runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let mut multi_threaded_runtime = tokio::runtime::Builder::new_multi_thread().build().unwrap();
 
         multi_threaded_runtime.block_on(async move {
             let mut tasks = vec![];
@@ -157,9 +157,9 @@ impl ProblemsSolver
 
                         println!("Optimizing {} - {}", optimizer.name(), problem.name());
 
-                        let mut solutions_runtime_array_processor: Box<dyn SolutionsRuntimeProcessor<ArraySolution>> = Box::new(SolutionsRuntimeArrayProcessor::new());
+                        let mut solutions_runtime_array_processor = SolutionsRuntimeArrayProcessor::new();
                         let best_solutions = optimize_and_get_best_solutions(&mut optimizer,
-                                                                             &mut solutions_runtime_array_processor,
+                                                                             Box::new(&mut solutions_runtime_array_processor),
                                                                              1000);
 
                         let optimizer_dir = dir.join(optimizer.name()).to_str().unwrap().to_string();
@@ -325,7 +325,6 @@ impl ProblemsSolver
         let mut table_lines = Vec::new();
 
         let mut multi_threaded_runtime = tokio::runtime::Builder::new_multi_thread().build().unwrap();
-        // let mut multi_threaded_runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
 
         let optimizer_names_task = optimizer_names.clone();
         let self_dir_metric = String::from(self_dir_metric.to_str().unwrap());
@@ -392,9 +391,9 @@ impl ProblemsSolver
 
                                                 let mut optimizer = optimizer_creator(array_optimizer_params);
 
-                                                let mut solutions_runtime_array_processor: Box<dyn SolutionsRuntimeProcessor<ArraySolution>> = Box::new(SolutionsRuntimeArrayProcessor::new());
+                                                let mut solutions_runtime_array_processor = SolutionsRuntimeArrayProcessor::new();
                                                 let best_solutions = optimize_and_get_best_solutions(&mut optimizer,
-                                                                                                     &mut solutions_runtime_array_processor,
+                                                                                                     Box::new(&mut solutions_runtime_array_processor),
                                                                                                      1000);
 
                                                 let metric = mean_convergence_metric_for_solutions(&problem, &best_solutions);
@@ -625,12 +624,3 @@ fn das_denis_test() {
 
     assert_eq!(n_objectives.len(),  24)
 }
-//
-// fn expected_das_dennis_result(n_objectives: i32, m_partition: i32) {
-//     let mut accumulator = 0;
-//     for i in 0..=(m_partition+1)
-//     {
-//         accumulator += i;
-//     }
-//     accumulator* (m_partition)
-// }
