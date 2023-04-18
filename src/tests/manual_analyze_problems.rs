@@ -602,12 +602,12 @@ fn get_root_dir() -> String
 fn das_denis_test() {
     let mut n_objectives: Vec<usize> = vec![];
     let mut m_partition: Vec<usize> = vec![];
-    for i in 2..26
+    for i in 5..6
     {
         n_objectives.push(i);
-        if i < 10
+        if i == 5
         {
-            m_partition.push(i)
+            m_partition.push(9)
         }
     }
 
