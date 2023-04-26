@@ -7,6 +7,7 @@ pub mod nsga3_self_impl;
 pub mod reference_directions;
 pub mod nsga3_final;
 pub mod age_moea2;
+pub mod reference_direction_using_local_storage;
 
 pub trait Optimizer<S: Solution>
 {

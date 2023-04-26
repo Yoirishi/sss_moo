@@ -52,7 +52,7 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
         "NSGA-III"
     }
 
-    fn optimize(&mut self, eval: &mut Box<dyn Evaluator>, runtime_solutions_processor: Box<&mut dyn SolutionsRuntimeProcessor<S>>) {
+    fn optimize(&mut self, eval: &mut Box<dyn Evaluator>, mut runtime_solutions_processor: Box<&mut dyn SolutionsRuntimeProcessor<S>>) {
         //STUB
 
         let mut rnd = thread_rng();
@@ -516,27 +516,29 @@ fn form_matrix_by_indicies_in_dist_matrix(source: &DistMatrix, indicies: &Vec<us
 }
 
 
-struct Hyperplane {
+pub struct Hyperplane {
     dimension: usize,
-    ideal_point: Vec<f64>,
-    worst_point: Vec<f64>,
-    nadir_point: Option<Vec<f64>>,
-    extreme_point: Option<Vec<Vec<f64>>>
+    pub ideal_point: Vec<f64>,
+    pub worst_point: Vec<f64>,
+    pub nadir_point: Option<Vec<f64>>,
+    pub extreme_point: Option<Vec<Vec<f64>>>,
+    pub extreme_point_indicies: Option<Vec<usize>>
 }
 
 impl Hyperplane {
-    fn new(dimension: &usize) -> Self {
+    pub fn new(dimension: &usize) -> Self {
         let dimension = *dimension;
         Hyperplane {
             dimension,
             ideal_point: vec![f64::MAX; dimension],
             worst_point: vec![f64::MIN; dimension],
             nadir_point: None,
-            extreme_point: None
+            extreme_point: None,
+            extreme_point_indicies: None
         }
     }
 
-    fn update(&mut self, points: &Vec<Vec<f64>>, non_dominated_indicies: &Vec<usize>)
+    pub fn update(&mut self, points: &Vec<Vec<f64>>, non_dominated_indicies: &Vec<usize>)
     {
         Hyperplane::update_vec_zero_axis(&mut self.ideal_point, points, |current_value, input_value| current_value > input_value);
         Hyperplane::update_vec_zero_axis(&mut self.worst_point, points, |current_value, input_value| current_value < input_value);
@@ -590,7 +592,7 @@ impl Hyperplane {
 
         let mut extreme_points = vec![];
 
-
+        self.extreme_point_indicies = Some(indicies_of_min_in_rows.clone());
 
         for index in indicies_of_min_in_rows
         {
@@ -666,7 +668,7 @@ impl Hyperplane {
         }
     }
 
-    fn eye(n_size: &usize, diagonal_value: Option<f64>, stub_value: Option<f64>) -> Vec<Vec<f64>>
+    pub fn eye(n_size: &usize, diagonal_value: Option<f64>, stub_value: Option<f64>) -> Vec<Vec<f64>>
     {
         let main_diagonal_value = match diagonal_value {
             None => { 1. }
@@ -698,7 +700,7 @@ impl Hyperplane {
         return result;
     }
 
-    fn get_addict_between_arrays<T:Add<Output = T> + Copy>(output: &mut Vec<T>, source1: &Vec<T>, source2: &Vec<T>)
+    pub(crate) fn get_addict_between_arrays<T:Add<Output = T> + Copy>(output: &mut Vec<T>, source1: &Vec<T>, source2: &Vec<T>)
     {
         for (elem1, elem2) in source1.iter().zip(source2)
         {
@@ -706,7 +708,7 @@ impl Hyperplane {
         }
     }
 
-    fn get_elem_divide_matrix<T:Div<Output = T> + Copy>(output: &mut Vec<T>, source1: &Vec<T>, source2: T)
+    pub(crate) fn get_elem_divide_matrix<T:Div<Output = T> + Copy>(output: &mut Vec<T>, source1: &Vec<T>, source2: T)
     {
         for elem in source1
         {
@@ -714,7 +716,7 @@ impl Hyperplane {
         }
     }
 
-    fn line_alg_gauss_solve(coefficient_matrix: &Vec<Vec<f64>>, equality_vector: &Vec<f64>) -> Result<Vec<f64>, &'static str>
+    pub fn line_alg_gauss_solve(coefficient_matrix: &Vec<Vec<f64>>, equality_vector: &Vec<f64>) -> Result<Vec<f64>, &'static str>
     {
         let mut result = vec![f64::MAX; equality_vector.len()];
         let mut advanced_system_matrix = Vec::with_capacity(coefficient_matrix.len());
@@ -856,7 +858,7 @@ impl Hyperplane {
         }
     }
 
-    fn multiply_matrix_and_vector<T:Sum + Mul<Output = T> + Copy>(matrix: &Vec<Vec<T>>, vec: &Vec<T>) -> Vec<T>
+    pub(crate) fn multiply_matrix_and_vector<T:Sum + Mul<Output = T> + Copy>(matrix: &Vec<Vec<T>>, vec: &Vec<T>) -> Vec<T>
     {
         //vec.iter().enumerate().map(|(index, &elem)| elem * matrix.clone().into_iter().nth(index).unwrap().into_iter().sum::<T>()).collect::<Vec<T>>()
         matrix.iter().map(|row| row.clone().into_iter().zip(vec.clone()).map(|(a, b)| a*b).sum()).collect::<Vec<T>>()
@@ -872,7 +874,7 @@ impl Hyperplane {
         result
     }
 
-    fn vec_all_is<T, CompareFn>(source1: &Vec<T>, source2: &Vec<T>, compare_fn: CompareFn) -> bool
+    pub(crate) fn vec_all_is<T, CompareFn>(source1: &Vec<T>, source2: &Vec<T>, compare_fn: CompareFn) -> bool
         where T: Copy,
               CompareFn: Fn(T, T) -> bool
     {
@@ -924,7 +926,7 @@ impl Hyperplane {
     }
 }
 
-fn get_vector_according_mask<T: Copy>(source: &Vec<T>, mask: &Vec<bool>) -> Vec<T>
+pub fn get_vector_according_mask<T: Copy>(source: &Vec<T>, mask: &Vec<bool>) -> Vec<T>
 {
     let mut result = vec![];
     for (elem, mask) in source.iter().zip(mask)
@@ -951,7 +953,7 @@ fn concatenate_matrix_zero_axis<T: Copy>(first_matrix: &Vec<Vec<T>>, second_matr
 }
 
 
-fn concatenate_matrix_rows<T: Copy>(matrix: &Vec<Vec<T>>) -> Vec<T> {
+pub fn concatenate_matrix_rows<T: Copy>(matrix: &Vec<Vec<T>>) -> Vec<T> {
     let mut result = vec![];
     for row in matrix
     {
@@ -968,8 +970,14 @@ fn associate_to_niches<'a>(points: &'a Vec<Vec<f64>>, niches: &'a Vec<Vec<f64>>,
                        -> (Vec<usize>, Vec<f64>, DistMatrix<'a>)
 {
     let mut denom = get_arithmetic_result_between_vectors(&nadir_point, &ideal_point, |a, b| a - b);
-    denom = replace_zero_coordinates_in_point(&denom, |a| *a == 0., 1e-12);
-    let normalized = get_difference_between_matrix_and_vector(&points, ideal_point);
+    denom = replace_point_coordinate_by_condition(&denom, |a| *a == 0., 1e-12);
+    let mut normalized = get_difference_between_matrix_and_vector(&points, ideal_point);
+
+    for mut point in normalized.iter()
+    {
+        point = &point.iter().zip(&denom).map(|(enumerator, denominator)| enumerator / denominator).collect::<Vec<f64>>();
+    }
+
     let distance_matrix = DistMatrix::new(normalized, &niches);
     let niche_of_individual = min_distances_indicies(&distance_matrix);
     let points_count = points.len();
@@ -986,13 +994,13 @@ fn associate_to_niches<'a>(points: &'a Vec<Vec<f64>>, niches: &'a Vec<Vec<f64>>,
 
 }
 
-fn replace_zero_coordinates_in_point<T, ReplaceFn>(source: &Vec<T>, replace_fn: ReplaceFn, target_value: T) -> Vec<T>
-    where T: Clone, ReplaceFn: Fn(&T) -> bool
+pub fn replace_point_coordinate_by_condition<T, ConditionFn>(source: &Vec<T>, condition_fn: ConditionFn, target_value: T) -> Vec<T>
+    where T: Clone, ConditionFn: Fn(&T) -> bool
 {
     let mut result = vec![];
     for value in source
     {
-        if replace_fn(value)
+        if condition_fn(value)
         {
             result.push(target_value.clone());
         }
@@ -1004,7 +1012,7 @@ fn replace_zero_coordinates_in_point<T, ReplaceFn>(source: &Vec<T>, replace_fn: 
     result
 }
 
-fn get_arithmetic_result_between_vectors<T, ArithmeticFn>(source1: &Vec<T>, source2: &Vec<T>, arithmetic_fn: ArithmeticFn) -> Vec<T>
+pub fn get_arithmetic_result_between_vectors<T, ArithmeticFn>(source1: &Vec<T>, source2: &Vec<T>, arithmetic_fn: ArithmeticFn) -> Vec<T>
     where T:Copy, ArithmeticFn: Fn(T, T) -> T
 {
     let mut result = vec![];
@@ -1081,7 +1089,7 @@ fn np_repeat_zero_axis<T: Copy>(source: &Vec<Vec<T>>, length: usize) -> Vec<Vec<
 }
 
 
-fn normalize_matrix_by_axis_one(mat: &[Vec<f64>]) -> Vec<f64>
+pub fn normalize_matrix_by_axis_one(mat: &[Vec<f64>]) -> Vec<f64>
 {
     let mut result = vec![];
     for row in mat {
@@ -1135,7 +1143,7 @@ fn divide_vectors<T: Copy + Div<Output=T>>(enumerator: &Vec<T>, denominator: &Ve
     result
 }
 
-fn rise_matrix_shape<T: Copy>(matrix: &Vec<Vec<T>>) -> Vec<Vec<Vec<T>>>
+pub fn rise_matrix_shape<T: Copy>(matrix: &Vec<Vec<T>>) -> Vec<Vec<Vec<T>>>
 {
     let mut result = vec![];
     for row in matrix
@@ -1238,7 +1246,7 @@ fn reshape_vector_into_matrix<T: Copy>(source: &Vec<T>, column_length: usize) ->
     result
 }
 
-fn np_argmin_axis_one<T: Copy + PartialOrd>(matrix: &Vec<Vec<T>>) -> Vec<usize>
+pub fn np_argmin_axis_one<T: Copy + PartialOrd>(matrix: &Vec<Vec<T>>) -> Vec<usize>
 {
     let mut min_indices = Vec::with_capacity(matrix.len());
 
@@ -1280,7 +1288,7 @@ fn min_distances_indicies(matrix: &DistMatrix) -> Vec<usize>
     min_indices
 }
 
-fn get_difference_between_matrix_and_vector<T:Sub<Output = T> + Copy>(matrix: &Vec<Vec<T>>, substracted_vector: &Vec<T>) -> Vec<Vec<T>>
+pub fn get_difference_between_matrix_and_vector<T:Sub<Output = T> + Copy>(matrix: &Vec<Vec<T>>, substracted_vector: &Vec<T>) -> Vec<Vec<T>>
 {
     let mut result = vec![];
     for row in matrix
@@ -1290,7 +1298,7 @@ fn get_difference_between_matrix_and_vector<T:Sub<Output = T> + Copy>(matrix: &V
     result
 }
 
-fn np_arrange_by_zero_to_target(target: usize) -> Vec<usize>
+pub fn np_arrange_by_zero_to_target(target: usize) -> Vec<usize>
 {
     let mut result = Vec::with_capacity(target);
     for i in 0..target
@@ -1325,7 +1333,7 @@ fn get_non_dominated_and_last_fronts(fronts: &Vec<Vec<usize>>) -> (Vec<usize>, V
     (fronts[0].clone(), fronts[fronts.len()-1].clone())
 }
 
-fn get_rows_from_matrix_by_indices_vector<T: Copy>(source: &Vec<Vec<T>>, indices: &[usize]) -> Vec<Vec<T>>
+pub fn get_rows_from_matrix_by_indices_vector<T: Copy>(source: &Vec<Vec<T>>, indices: &[usize]) -> Vec<Vec<T>>
 {
     let mut result = vec![];
     for index in indices
@@ -1335,7 +1343,7 @@ fn get_rows_from_matrix_by_indices_vector<T: Copy>(source: &Vec<Vec<T>>, indices
     result
 }
 
-fn multiply_2d_matrix_and_rised_2d_matrix<T: Copy + Mul<Output=T>>(two_d_matrix: &Vec<Vec<T>>, rised_2d_matrix: &Vec<Vec<Vec<T>>>) -> Vec<Vec<Vec<T>>>
+pub fn multiply_2d_matrix_and_rised_2d_matrix<T: Copy + Mul<Output=T>>(two_d_matrix: &Vec<Vec<T>>, rised_2d_matrix: &Vec<Vec<Vec<T>>>) -> Vec<Vec<Vec<T>>>
 {
     let mut result = vec![];
     for mut dim in rised_2d_matrix
@@ -1350,7 +1358,7 @@ fn multiply_2d_matrix_and_rised_2d_matrix<T: Copy + Mul<Output=T>>(two_d_matrix:
     result
 }
 
-fn np_max_axis_two_for_3d_matrix<T:Copy + PartialOrd>(source: &Vec<Vec<Vec<T>>>) -> Vec<Vec<T>>
+pub fn np_max_axis_two_for_3d_matrix<T:Copy + PartialOrd>(source: &Vec<Vec<Vec<T>>>) -> Vec<Vec<T>>
 {
     let mut result = vec![];
 
@@ -1406,7 +1414,7 @@ fn np_argmin_axis_zero(matrix: &Vec<Vec<f64>>) -> Vec<usize> {
     indices
 }
 
-fn np_argmin_vector(source: &Vec<f64>) -> usize {
+pub fn np_argmin_vector(source: &Vec<f64>) -> usize {
     let mut min_val = source[0];
     let mut min_index = 0;
     for (index, value) in source.iter().enumerate().skip(1) {

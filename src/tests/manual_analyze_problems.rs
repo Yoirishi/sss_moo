@@ -18,6 +18,7 @@ use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use rand::{Rng, thread_rng};
 use crate::optimizers::nsga3_chat_gpt::NSGA3Optimizer;
+use crate::optimizers::reference_direction_using_local_storage::ReferenceDirectionsUsingLocalStorage;
 use crate::optimizers::reference_directions::ReferenceDirections;
 use crate::problem::dtlz::dtlz1::Dtlz1;
 use crate::problem::dtlz::dtlz2::Dtlz2;
@@ -602,12 +603,12 @@ fn get_root_dir() -> String
 fn das_denis_test() {
     let mut n_objectives: Vec<usize> = vec![];
     let mut m_partition: Vec<usize> = vec![];
-    for i in 5..6
+    for i in 2..26
     {
         n_objectives.push(i);
-        if i == 5
+        if i < 10
         {
-            m_partition.push(9)
+            m_partition.push(i)
         }
     }
 
@@ -616,11 +617,7 @@ fn das_denis_test() {
     {
         for m in &m_partition
         {
-            ReferenceDirections::new(*n, *m);
+            assert_eq!(ReferenceDirectionsUsingLocalStorage::new(*n, *m).reference_directions,  ReferenceDirections::new(*n, *m).reference_directions)
         }
     }
-
-
-
-    assert_eq!(n_objectives.len(),  24)
 }
