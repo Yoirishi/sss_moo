@@ -302,7 +302,7 @@ fn newton_raphson(points: &Vec<Vec<f64>>, extreme_points_indicies: &Vec<usize>) 
 
     let interesting_point = points[index_of_minimal_distance].clone();
 
-    let precision = 1e-15;
+    let precision = 1e-6;
 
     let mut p_current = 1.0;
 
@@ -902,8 +902,6 @@ impl<'a, S> Optimizer<S> for AGEMOEA2Optimizer<'a, S>
             parent_pop.extend(child_pop);
 
             let sorted = self.sort(parent_pop);
-
-            println!("len of sorted: {}", sorted.len());
 
             parent_pop = sorted;
         }
