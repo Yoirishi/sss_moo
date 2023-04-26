@@ -4673,7 +4673,7 @@ pub fn get___f_to_hyperplane_test() -> Vec<Vec<f64>>
     ]
 }
 
-pub fn get_next__f_to_hyperplane_test() -> Vec<Vec<f64>>
+pub fn get_next_f_to_hyperplane_test() -> Vec<Vec<f64>>
 {
     vec![
         vec![46.74918205780317492781250621192157268524169921875000,18.04794671728274479960418830160051584243774414062500,85.24854259006707479784381575882434844970703125000000],

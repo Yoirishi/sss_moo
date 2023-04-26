@@ -331,7 +331,7 @@ fn check_get_new_point_with_replaced_coordinates_in_point()
 {
     let point = vec![1.3, 0.0, 5.2, 0.0, 6.3];
     let target_value = 1e-12;
-    let result = replace_zero_coordinates_in_point(&point, |&a| a == 0., target_value);
+    let result = replace_point_coordinate_by_condition(&point, |&a| a == 0., target_value);
     let expected_result = vec![1.3, 1e-12, 5.2, 1e-12, 6.3];
     assert_eq!(result, expected_result);
 }
@@ -1880,7 +1880,7 @@ fn test_hyperplane_form_extreme_points() {
             &test_helpers::get_ideal_point_to_hyperplane_test(),
             |a, b| if (a - b) > 1e-3 { a-b } else { 0. }))
     }
-    assert_eq!(translated_objective, test_helpers::get_next__f_to_hyperplane_test());
+    assert_eq!(translated_objective, test_helpers::get_next_f_to_hyperplane_test());
     let rised_weights = rise_matrix_shape(&weights);
     assert_eq!(rised_weights, test_helpers::get_rised_weights_to_hyperplane_test());
     let mult_f_by_rised_weights = multiply_2d_matrix_and_rised_2d_matrix(&translated_objective, &rised_weights);
