@@ -14,7 +14,7 @@ use rand_distr::num_traits::real::Real;
 use crate::{Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
 use crate::ens_nondominating_sorting::ens_nondominated_sorting;
 use crate::evaluator::Evaluator;
-use crate::optimizers::nsga3_final::{concatenate_matrix_rows, get_arithmetic_result_between_vectors, get_difference_between_matrix_and_vector, get_rows_from_matrix_by_indices_vector, get_vector_according_mask, Hyperplane, multiply_2d_matrix_and_rised_2d_matrix, np_argmin_axis_one, np_argmin_vector, np_arrange_by_zero_to_target, np_max_axis_two_for_3d_matrix, replace_point_coordinate_by_condition, rise_matrix_shape};
+use crate::optimizers::nsga3_final::*;
 use crate::optimizers::Optimizer;
 
 type SolutionId = u64;

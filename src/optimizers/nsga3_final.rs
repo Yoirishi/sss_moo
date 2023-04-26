@@ -55,6 +55,9 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
     fn optimize(&mut self, eval: &mut Box<dyn Evaluator>, mut runtime_solutions_processor: Box<&mut dyn SolutionsRuntimeProcessor<S>>) {
         //STUB
 
+
+
+
         let mut rnd = thread_rng();
 
         let pop_size = self.meta.population_size();
@@ -518,23 +521,21 @@ fn form_matrix_by_indicies_in_dist_matrix(source: &DistMatrix, indicies: &Vec<us
 
 pub struct Hyperplane {
     dimension: usize,
-    pub ideal_point: Vec<f64>,
-    pub worst_point: Vec<f64>,
-    pub nadir_point: Option<Vec<f64>>,
-    pub extreme_point: Option<Vec<Vec<f64>>>,
-    pub extreme_point_indicies: Option<Vec<usize>>
+    ideal_point: Vec<f64>,
+    worst_point: Vec<f64>,
+    nadir_point: Option<Vec<f64>>,
+    extreme_point: Option<Vec<Vec<f64>>>
 }
 
 impl Hyperplane {
-    pub fn new(dimension: &usize) -> Self {
+    fn new(dimension: &usize) -> Self {
         let dimension = *dimension;
         Hyperplane {
             dimension,
             ideal_point: vec![f64::MAX; dimension],
             worst_point: vec![f64::MIN; dimension],
             nadir_point: None,
-            extreme_point: None,
-            extreme_point_indicies: None
+            extreme_point: None
         }
     }
 
@@ -592,7 +593,7 @@ impl Hyperplane {
 
         let mut extreme_points = vec![];
 
-        self.extreme_point_indicies = Some(indicies_of_min_in_rows.clone());
+
 
         for index in indicies_of_min_in_rows
         {
@@ -970,14 +971,8 @@ fn associate_to_niches<'a>(points: &'a Vec<Vec<f64>>, niches: &'a Vec<Vec<f64>>,
                        -> (Vec<usize>, Vec<f64>, DistMatrix<'a>)
 {
     let mut denom = get_arithmetic_result_between_vectors(&nadir_point, &ideal_point, |a, b| a - b);
-    denom = replace_point_coordinate_by_condition(&denom, |a| *a == 0., 1e-12);
-    let mut normalized = get_difference_between_matrix_and_vector(&points, ideal_point);
-
-    for mut point in normalized.iter()
-    {
-        point = &point.iter().zip(&denom).map(|(enumerator, denominator)| enumerator / denominator).collect::<Vec<f64>>();
-    }
-
+    denom = replace_zero_coordinates_in_point(&denom, |a| *a == 0., 1e-12);
+    let normalized = get_difference_between_matrix_and_vector(&points, ideal_point);
     let distance_matrix = DistMatrix::new(normalized, &niches);
     let niche_of_individual = min_distances_indicies(&distance_matrix);
     let points_count = points.len();
@@ -994,13 +989,13 @@ fn associate_to_niches<'a>(points: &'a Vec<Vec<f64>>, niches: &'a Vec<Vec<f64>>,
 
 }
 
-pub fn replace_point_coordinate_by_condition<T, ConditionFn>(source: &Vec<T>, condition_fn: ConditionFn, target_value: T) -> Vec<T>
-    where T: Clone, ConditionFn: Fn(&T) -> bool
+pub fn replace_zero_coordinates_in_point<T, ReplaceFn>(source: &Vec<T>, replace_fn: ReplaceFn, target_value: T) -> Vec<T>
+    where T: Clone, ReplaceFn: Fn(&T) -> bool
 {
     let mut result = vec![];
     for value in source
     {
-        if condition_fn(value)
+        if replace_fn(value)
         {
             result.push(target_value.clone());
         }
