@@ -601,26 +601,4 @@ fn get_root_dir() -> String
     env::var("OUTPUT_DIRECTORY").unwrap_or("D:/tmp/test_optimizers".to_string())
 }
 
-#[test]
-#[ignore]
-fn das_denis_test() {
-    let mut n_objectives: Vec<usize> = vec![];
-    let mut m_partition: Vec<usize> = vec![];
-    for i in 2..26
-    {
-        n_objectives.push(i);
-        if i < 10
-        {
-            m_partition.push(i)
-        }
-    }
 
-
-    for n in &n_objectives
-    {
-        for m in &m_partition
-        {
-            assert_eq!(ReferenceDirectionsUsingLocalStorage::new(*n, *m).reference_directions,  ReferenceDirections::new(*n, *m).reference_directions)
-        }
-    }
-}

@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use itertools::Itertools;
 use crate::optimizers::age_moea2::{highest_value_and_index_in_vector, argpartition, matrix_slice_axis_one, sum_along_axis_one, take_along_axis_one, point_to_line_distance, find_corner_solution, norm_matrix_by_axis_one_and_ord, pairwise_distances, survival_score, newton_raphson, get_crowd_distance, meshgrid, minkowski_distances, argsort, mask_positive_count, get_vector_according_indicies};
 use crate::optimizers::age_moea2::test_helpers::*;
-use crate::optimizers::nsga3_final::{concatenate_matrix_rows, get_rows_from_matrix_by_indices_vector, get_vector_according_mask};
+use crate::optimizers::nsga3_final::*;
 
 #[test]
 fn test_argpartition_fn()
