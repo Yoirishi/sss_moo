@@ -17,6 +17,7 @@ use std::io::Write;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use rand::{Rng, thread_rng};
+use crate::optimizers::age_moea2::AGEMOEA2Optimizer;
 use crate::optimizers::nsga3_chat_gpt::NSGA3Optimizer;
 use crate::optimizers::reference_direction_using_local_storage::ReferenceDirectionsUsingLocalStorage;
 use crate::optimizers::reference_directions::ReferenceDirections;
@@ -534,8 +535,9 @@ fn print_3d_images_for_optimizers() {
     let problem_solver = ProblemsSolver::new(
         test_problems,
         vec![
-            |optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)),
-            |optimizer_params: ArrayOptimizerParams| Box::new(nsga3_final::NSGA3Optimizer::new(optimizer_params, ReferenceDirections::new(3, 5).reference_directions))
+            //|optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)),
+            //|optimizer_params: ArrayOptimizerParams| Box::new(nsga3_final::NSGA3Optimizer::new(optimizer_params, ReferenceDirections::new(3, 5).reference_directions))
+            //|optimizer_params: ArrayOptimizerParams| Box::new(AGEMOEA2Optimizer::new(optimizer_params))
         ],
     );
 
@@ -565,11 +567,12 @@ fn calc_output_metric_for_optimizers() {
     let problem_solver = ProblemsSolver::new(
         test_problems,
         vec![
-            |optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)),
-            |optimizer_params: ArrayOptimizerParams| {
-                let count_of_objectives = optimizer_params.objectives().len();
-                Box::new(nsga3_final::NSGA3Optimizer::new(optimizer_params, ReferenceDirections::new(count_of_objectives, 5).reference_directions))
-            }
+            //|optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)),
+            //|optimizer_params: ArrayOptimizerParams| {
+            //    let count_of_objectives = optimizer_params.objectives().len();
+            //    Box::new(nsga3_final::NSGA3Optimizer::new(optimizer_params, ReferenceDirections::new(count_of_objectives, 5).reference_directions))
+            //},
+            |optimizer_params: ArrayOptimizerParams| Box::new(AGEMOEA2Optimizer::new(optimizer_params))
         ],
     );
 
@@ -595,5 +598,7 @@ fn get_metrics_dir(root: &str) -> String
 
 fn get_root_dir() -> String
 {
-    env::var("OUTPUT_DIRECTORY").unwrap_or("E:/tmp/test_optimizers".to_string())
+    env::var("OUTPUT_DIRECTORY").unwrap_or("D:/tmp/test_optimizers".to_string())
 }
+
+
