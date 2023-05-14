@@ -31,7 +31,11 @@ struct SortingBuffer<S>
         S: Solution
 {
     prepared_fronts: Vec<Candidate<S>>,
-    objs: Vec<Vec<f64>>
+    objs: Vec<Vec<f64>>,
+    points_on_first_front: Vec<Vec<f64>>,
+    crowding_distance_i: Vec<f64>,
+    crowding_distance: Vec<f64>,
+    last_front_indicies: Vec<usize>
 }
 
 pub struct AGEMOEA2Optimizer<'a, S: Solution> {
@@ -55,6 +59,8 @@ impl<'a, S> AGEMOEA2Optimizer<'a, S>
 
     /// Instantiate a new optimizer with a given meta params
     pub fn new(meta: impl Meta<'a, S> + 'a) -> Self {
+        let points_on_first_front: Vec<Vec<f64>> = Vec::with_capacity(meta.population_size());
+
         AGEMOEA2Optimizer {
             meta: Box::new(meta),
             last_id: 0,
@@ -62,6 +68,10 @@ impl<'a, S> AGEMOEA2Optimizer<'a, S>
             sorting_buffer: SortingBuffer {
                 prepared_fronts: vec![],
                 objs: vec![],
+                points_on_first_front,
+                crowding_distance_i: vec![],
+                crowding_distance: vec![],
+                last_front_indicies: vec![],
             },
         }
     }
@@ -136,7 +146,7 @@ impl<'a, S> AGEMOEA2Optimizer<'a, S>
 
         let mut max_front_no = 0;
 
-        let mut points_on_first_front: Vec<Vec<f64>> = Vec::with_capacity(self.meta.population_size());
+        self.sorting_buffer.points_on_first_front.clear();
         let mut acc_of_survival = 0usize;
         for (front_no, front) in clear_fronts.iter().enumerate()
         {
@@ -152,7 +162,7 @@ impl<'a, S> AGEMOEA2Optimizer<'a, S>
 
         for index in clear_fronts[0].iter()
         {
-            points_on_first_front.push(points[*index].clone())
+            self.sorting_buffer.points_on_first_front.push(points[*index].clone())
         }
 
 
@@ -160,7 +170,7 @@ impl<'a, S> AGEMOEA2Optimizer<'a, S>
             .map(|candidate| candidate.front < max_front_no)
             .collect();
 
-        let mut crowding_distance: Vec<f64> = vec!(0.; prepared_fronts.len());
+        self.sorting_buffer.crowding_distance = vec!(0.; prepared_fronts.len());
 
         let mut ideal_point = points[0].clone();
 
@@ -175,21 +185,20 @@ impl<'a, S> AGEMOEA2Optimizer<'a, S>
             }
         }
 
-        let (p, normalized_front_points, normalization_vector) = survival_score(&points_on_first_front, &ideal_point);
+        let (p, normalized_front_points, normalization_vector) =
+            survival_score(
+                &self.sorting_buffer.points_on_first_front,
+                &ideal_point
+            );
 
 
         for (&point_index, &crowding_distance_value) in clear_fronts[0].iter().zip(&normalized_front_points)
         {
-            crowding_distance[point_index] = crowding_distance_value
+            self.sorting_buffer.crowding_distance[point_index] = crowding_distance_value
         }
 
-        let mut crowding_distance_i = Vec::with_capacity(clear_fronts.iter()
-            .max_by(|&a, &b|a.len().cmp(&b.len()))
-            .unwrap()
-            .len());
-
         for i in 1..max_front_no {
-            crowding_distance_i.clear();
+            self.sorting_buffer.crowding_distance_i.clear();
             let points_in_current_front = get_rows_from_matrix_by_indices_vector(&points, &clear_fronts[i]);
             let normalized_front = points_in_current_front.iter()
                 .map(|current_point|
@@ -201,24 +210,33 @@ impl<'a, S> AGEMOEA2Optimizer<'a, S>
                     })
                 .collect::<Vec<Vec<f64>>>();
 
-            crowding_distance_i.extend::<Vec<f64>>(minkowski_distances(&normalized_front, &ideal_point, p)
+            self.sorting_buffer.crowding_distance_i.extend(
+                minkowski_distances(&normalized_front, &ideal_point, p)
                 .iter()
                 .map(|distance| 1. / *distance)
-                .collect());
+            );
 
-            for (&point_index, &crowding_distance_value) in clear_fronts[i].iter().zip(&crowding_distance_i)
+            for (&point_index, &crowding_distance_value) in clear_fronts[i].iter().zip(&self.sorting_buffer.crowding_distance_i)
             {
-                crowding_distance[point_index] = crowding_distance_value
+                self.sorting_buffer.crowding_distance[point_index] = crowding_distance_value
             }
         }
 
-        let mut last_front_indicies = prepared_fronts.iter()
+        self.sorting_buffer.last_front_indicies.clear();
+        self.sorting_buffer.last_front_indicies.extend(
+            prepared_fronts.iter()
             .enumerate()
             .filter(|(_, front_no)| front_no.front == max_front_no)
             .map(|(i, _)| i)
-            .collect::<Vec<usize>>();
+        );
 
-        let mut rank = argsort(&get_vector_according_indicies(&crowding_distance, &last_front_indicies));
+        let mut rank =
+            argsort(
+                &get_vector_according_indicies(
+                    &self.sorting_buffer.crowding_distance,
+                    &self.sorting_buffer.last_front_indicies
+                )
+            );
         rank.reverse();
 
         let count_of_selected = mask_positive_count(&selected_fronts);
@@ -227,18 +245,8 @@ impl<'a, S> AGEMOEA2Optimizer<'a, S>
         let count_of_remaining = n_surv - count_of_selected;
         for i in 0..count_of_remaining
         {
-            selected_fronts[last_front_indicies[rank[i]]] = true
+            selected_fronts[self.sorting_buffer.last_front_indicies[rank[i]]] = true
         }
-
-
-        // if n_surv > count_of_selected
-        // {
-        //     let count_of_remaining = n_surv - count_of_selected;
-        //     for i in 0..count_of_remaining
-        //     {
-        //         selected_fronts[last_front_indicies[rank[i]]] = true
-        //     }
-        // }
 
         let mut result = Vec::with_capacity(n_surv);
         for (child_index, is_survive) in selected_fronts.iter().enumerate()
@@ -427,13 +435,15 @@ fn survival_score(points_on_front: &Vec<Vec<f64>>, ideal_point: &Vec<f64>) -> (f
     let mut crowding_distance = vec![0.; front_size];
     if front_size < count_of_objectives //looks like crutch
     {
-
         return (p, crowding_distance, np_max_matrix_axis_one(&points_on_front))
     }
     else
     {
-        let mut pre_normalized = get_difference_between_matrix_and_vector(&points_on_front,
-                                                                          &ideal_point);
+        let pre_normalized =
+            get_difference_between_matrix_and_vector(
+                &points_on_front,
+                &ideal_point
+            );
 
         let extreme_point_indicies = find_corner_solution(&pre_normalized);
 
