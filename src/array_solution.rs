@@ -210,3 +210,43 @@ impl SolutionsRuntimeProcessor<ArraySolution> for SolutionsRuntimeArrayProcessor
         false
     }
 }
+
+pub struct SolutionsRuntimeArrayProcessorWithStopAfterNumberOfGeneration
+{
+    current_iteration_num: usize,
+    stop_after_nth_generation: usize
+}
+
+impl SolutionsRuntimeArrayProcessorWithStopAfterNumberOfGeneration
+{
+    pub fn new(stop_after_nth_generation: usize) -> Self
+    {
+        SolutionsRuntimeArrayProcessorWithStopAfterNumberOfGeneration {
+            current_iteration_num: 0,
+            stop_after_nth_generation
+        }
+    }
+}
+
+
+impl SolutionsRuntimeProcessor<ArraySolution> for SolutionsRuntimeArrayProcessorWithStopAfterNumberOfGeneration
+{
+    fn new_candidates(&mut self, candidates: Vec<&mut ArraySolution>) {
+        for array_solution in candidates
+        {
+            array_solution.calc_objectives()
+        }
+    }
+
+    fn iter_solutions(&mut self, _candidates: Vec<&mut ArraySolution>) {
+
+    }
+
+    fn iteration_num(&mut self, num: usize) {
+        self.current_iteration_num = num;
+    }
+
+    fn needs_early_stop(&mut self) -> bool {
+        self.current_iteration_num >= self.stop_after_nth_generation
+    }
+}

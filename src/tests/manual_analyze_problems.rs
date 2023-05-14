@@ -7,7 +7,7 @@ use itertools::Itertools;
 use markdown_table::MarkdownTable;
 use plotters::backend::BitMapBackend;
 use plotters::prelude::*;
-use crate::array_solution::{ArrayOptimizerParams, ArraySolution, ArraySolutionEvaluator, SolutionsRuntimeArrayProcessor};
+use crate::array_solution::{ArrayOptimizerParams, ArraySolution, ArraySolutionEvaluator, SolutionsRuntimeArrayProcessor, SolutionsRuntimeArrayProcessorWithStopAfterNumberOfGeneration};
 use crate::evaluator::{DefaultEvaluator, Evaluator};
 use crate::optimizers::nsga2::NSGA2Optimizer;
 use crate::optimizers::{nsga3_final, nsga3_self_impl, Optimizer};
@@ -17,6 +17,7 @@ use std::io::Write;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use rand::{Rng, thread_rng};
+use crate::optimizers::age_moea2::AGEMOEA2Optimizer;
 use crate::optimizers::nsga3_chat_gpt::NSGA3Optimizer;
 use crate::optimizers::reference_direction_using_local_storage::ReferenceDirectionsUsingLocalStorage;
 use crate::optimizers::reference_directions::ReferenceDirections;
@@ -27,6 +28,8 @@ use crate::problem::dtlz::dtlz4::Dtlz4;
 use crate::problem::dtlz::dtlz5::Dtlz5;
 use crate::problem::dtlz::dtlz6::Dtlz6;
 use crate::problem::dtlz::dtlz7::Dtlz7;
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 fn optimize_and_get_best_solutions(optimizer: &mut Box<dyn Optimizer<ArraySolution>>,
                                    solutions_runtime_array_processor: Box<&mut dyn SolutionsRuntimeProcessor<ArraySolution>>,
@@ -461,6 +464,133 @@ impl ProblemsSolver
             );
         });
     }
+
+    fn calc_average_time(&self, stop_after_nth_gen: usize, repeat_count: usize, self_dir_metric: &std::path::Path, output_dir_metric: &std::path::Path)
+    {
+        let mut optimizer_names: Arc<tokio::sync::Mutex<HashSet<String>>> = Arc::new(tokio::sync::Mutex::new(HashSet::new()));
+
+        let mut table_lines = Vec::new();
+
+        // let mut multi_threaded_runtime = tokio::runtime::Builder::new_multi_thread().build().unwrap();
+        let mut multi_threaded_runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+
+        let optimizer_names_task = optimizer_names.clone();
+        let self_dir_metric = String::from(self_dir_metric.to_str().unwrap());
+        multi_threaded_runtime.block_on(async move {
+            let mut tasks = vec![];
+            let mut problem_std_dev_tasks = vec![];
+
+            for test_problem in &self.test_problems
+            {
+                let mut problems_results_table = vec!["".to_string(); self.optimizer_creators.len() + 1];
+
+                let std_dev_problem = test_problem.1.clone();
+                let std_dev_evaluator = test_problem.0.clone();
+                problem_std_dev_tasks.push(tokio::spawn(async move {
+                    calc_std_dev_for_problem(&std_dev_problem, &std_dev_evaluator)
+                }));
+
+                problems_results_table[0] = test_problem.1.name().to_string();
+
+                let test_problem_index = table_lines.len();
+
+                for (optimizer_index, optimizer_creator) in self.optimizer_creators.iter().enumerate()
+                {
+                    let array_solution_evaluator = test_problem.0.clone();
+                    let problem = test_problem.1.clone();
+                    let optimizer_creator = (*optimizer_creator).clone();
+
+                    let optimizer_names = optimizer_names_task.clone();
+                    let self_dir_metric = self_dir_metric.clone();
+                    tasks.push(tokio::spawn(async move {
+                        let optimizer_name: String = {
+                            let array_solution_evaluator = array_solution_evaluator.clone();
+                            let array_optimizer_params = new_array_optimizer_params(array_solution_evaluator);
+                            let mut optimizer = optimizer_creator(array_optimizer_params);
+
+                            optimizer.name().into()
+                        };
+
+                        let optimizer_problem_name_file = format!("{} - {}.worktime", optimizer_name, problem.name());
+
+                        {
+                            optimizer_names.lock().await.insert(optimizer_name.into());
+                        }
+
+                        let self_metric_file = std::path::Path::new(&self_dir_metric).join(optimizer_problem_name_file);
+
+                        let metric =
+                            if self_metric_file.exists()
+                            {
+                                tokio::fs::read_to_string(self_metric_file).await.unwrap().parse().unwrap()
+                            } else {
+                                let mut tasks = vec![];
+
+                                for _ in 0..repeat_count
+                                {
+                                    let array_solution_evaluator = array_solution_evaluator.clone();
+                                    let problem = problem.clone();
+
+                                    let optimizer_creator = optimizer_creator.clone();
+                                    tasks.push(tokio::spawn(async move {
+                                        let metric =
+                                            {
+                                                let start = Instant::now();
+                                                let array_optimizer_params = new_array_optimizer_params(array_solution_evaluator);
+                                                let mut optimizer = optimizer_creator(array_optimizer_params);
+                                                let mut solutions_runtime_array_processor = SolutionsRuntimeArrayProcessorWithStopAfterNumberOfGeneration::new(stop_after_nth_gen);
+                                                optimize_and_get_best_solutions(&mut optimizer,
+                                                                                Box::new(&mut solutions_runtime_array_processor),
+                                                                                1000);
+                                                let elapsed = start.elapsed();
+                                                elapsed.as_millis() as f64 / 1000.
+                                            };
+                                        metric
+                                    }));
+                                }
+                                let mut summ_metric = 0.;
+                                for task in tasks
+                                {
+                                    summ_metric += task.await.unwrap();
+                                }
+                                let metric = summ_metric / repeat_count as f64;
+                                tokio::fs::write(self_metric_file, metric.to_string()).await.unwrap();
+                                metric
+                            };
+
+                        (optimizer_index + 1, test_problem_index, metric)
+                    }));
+                }
+
+                table_lines.push(problems_results_table);
+            }
+
+            let mut optimizers_title = vec!["".to_string()];
+            for optimizer_name in optimizer_names.lock().await.iter()
+            {
+                optimizers_title.push(optimizer_name.clone());
+            }
+
+            let mut std_dev_problems = vec![];
+            for task in problem_std_dev_tasks
+            {
+                std_dev_problems.push(task.await.unwrap());
+            }
+
+            let mut tasks_result = vec![];
+            for task in tasks
+            {
+                tasks_result.push(task.await.unwrap());
+            }
+
+            self.save_convergence_metric_to_file(
+                &output_dir_metric.join("worktime.html"),
+                &table_lines,
+                &optimizers_title,
+                &tasks_result
+            );
+        });
+    }
 }
 
 fn dtlz_test_problems(n_var: usize, n_obj: usize) -> Vec<(Box<dyn ArraySolutionEvaluator + Send>, Box<dyn Problem + Send>)> {
@@ -473,6 +603,17 @@ fn dtlz_test_problems(n_var: usize, n_obj: usize) -> Vec<(Box<dyn ArraySolutionE
     test_problems.push(ProblemsSolver::create_test_problem(&Dtlz5::new(n_var, n_obj)));
     test_problems.push(ProblemsSolver::create_test_problem(&Dtlz6::new(n_var, n_obj)));
     test_problems.push(ProblemsSolver::create_test_problem(&Dtlz7::new(n_var, n_obj)));
+
+    test_problems
+}
+
+fn dtlz_test_problems_for_time(n_var: usize, n_obj: usize) -> Vec<(Box<dyn ArraySolutionEvaluator + Send>, Box<dyn Problem + Send>)> {
+    let mut test_problems = vec![];
+
+    test_problems.push(ProblemsSolver::create_test_problem(&Dtlz1::new(n_var, n_obj)));
+    test_problems.push(ProblemsSolver::create_test_problem(&Dtlz2::new(n_var, n_obj)));
+    test_problems.push(ProblemsSolver::create_test_problem(&Dtlz3::new(n_var, n_obj)));
+    test_problems.push(ProblemsSolver::create_test_problem(&Dtlz4::new(n_var, n_obj)));
 
     test_problems
 }
@@ -596,4 +737,36 @@ fn get_metrics_dir(root: &str) -> String
 fn get_root_dir() -> String
 {
     env::var("OUTPUT_DIRECTORY").unwrap_or("E:/tmp/test_optimizers".to_string())
+}
+
+#[test]
+#[ignore]
+fn calc_time_for_optimizers() {
+    let root_dir = get_root_dir();
+
+    let mut test_problems = vec![];
+
+    for n_var in vec![4, 7, 10, 12]
+    {
+        for n_obj in vec![3, 4, 5]
+        {
+            if n_obj >= n_var
+            {
+                continue;
+            }
+
+            test_problems.extend(dtlz_test_problems_for_time(n_var, n_obj));
+        }
+    }
+
+    let problem_solver = ProblemsSolver::new(
+        test_problems,
+        vec![
+            |optimizer_params: ArrayOptimizerParams| Box::new(AGEMOEA2Optimizer::new(optimizer_params))
+        ],
+    );
+
+    problem_solver.calc_average_time(1000, 50,
+                                     std::path::Path::new(&get_self_metric_results_dir(root_dir.as_str())),
+                                     std::path::Path::new(&get_metrics_dir(root_dir.as_str())));
 }

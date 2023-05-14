@@ -215,16 +215,6 @@ impl<'a, S> AGEMOEA2Optimizer<'a, S>
             selected_fronts[last_front_indicies[rank[i]]] = true
         }
 
-
-        // if n_surv > count_of_selected
-        // {
-        //     let count_of_remaining = n_surv - count_of_selected;
-        //     for i in 0..count_of_remaining
-        //     {
-        //         selected_fronts[last_front_indicies[rank[i]]] = true
-        //     }
-        // }
-
         let mut result = Vec::with_capacity(n_surv);
         for (child_index, is_survive) in selected_fronts.iter().enumerate()
         {
@@ -902,8 +892,6 @@ impl<'a, S> Optimizer<S> for AGEMOEA2Optimizer<'a, S>
             parent_pop.extend(child_pop);
 
             let sorted = self.sort(parent_pop);
-
-            println!("len of sorted: {}", sorted.len());
 
             parent_pop = sorted;
         }
