@@ -26,11 +26,19 @@ struct Candidate<S: Solution> {
     front: usize
 }
 
+struct SortingBuffer<S>
+    where
+        S: Solution
+{
+    prepared_fronts: Vec<Candidate<S>>,
+    objs: Vec<Vec<f64>>
+}
 
 pub struct AGEMOEA2Optimizer<'a, S: Solution> {
     meta: Box<dyn Meta<'a, S> + 'a>,
     last_id: SolutionId,
-    best_solutions: Vec<(Vec<f64>, S)>
+    best_solutions: Vec<(Vec<f64>, S)>,
+    sorting_buffer: SortingBuffer<S>
 }
 
 impl<'a, S> AGEMOEA2Optimizer<'a, S>
@@ -50,7 +58,11 @@ impl<'a, S> AGEMOEA2Optimizer<'a, S>
         AGEMOEA2Optimizer {
             meta: Box::new(meta),
             last_id: 0,
-            best_solutions: Vec::new()
+            best_solutions: Vec::new(),
+            sorting_buffer: SortingBuffer {
+                prepared_fronts: vec![],
+                objs: vec![],
+            },
         }
     }
 
@@ -77,11 +89,14 @@ impl<'a, S> AGEMOEA2Optimizer<'a, S>
 
     #[allow(clippy::needless_range_loop)]
     fn sort(&mut self, pop: Vec<Candidate<S>>) -> Vec<Candidate<S>> {
-        let objs = pop.iter()
-            .map(|p| self.values(&p.sol))
-            .collect();
+        self.sorting_buffer.objs.clear();
+        for cand in pop.iter()
+        {
+            let objs_cand = self.values(&cand.sol);
+            self.sorting_buffer.objs.push(objs_cand)
+        }
 
-        let ens_fronts = ens_nondominated_sorting(&objs);
+        let ens_fronts = ens_nondominated_sorting(&self.sorting_buffer.objs);
 
         let mut flat_fronts: Vec<Candidate<S>> = Vec::with_capacity(pop.len());
         for (fidx, f) in ens_fronts.into_iter().enumerate() {
@@ -100,12 +115,12 @@ impl<'a, S> AGEMOEA2Optimizer<'a, S>
         let mut fronts = flat_fronts;
         debug_assert!(!fronts.is_empty());
 
-
         let (clear_fronts, points) = AGEMOEA2Optimizer::separate_fronts_and_points(&self, &fronts);
 
         let indicies = concatenate_matrix_rows(&clear_fronts);
 
-        let mut prepared_fronts = vec![];
+        let prepared_fronts = &mut self.sorting_buffer.prepared_fronts;
+        prepared_fronts.clear();
         for index in indicies
         {
             prepared_fronts.push(fronts[index].clone());
@@ -796,6 +811,7 @@ impl<'a, S> Optimizer<S> for AGEMOEA2Optimizer<'a, S>
         let crossover_odds = self.meta.crossover_odds();
         let mutation_odds = self.meta.mutation_odds();
 
+        let mut child_pop: Vec<Candidate<S>> = Vec::with_capacity(pop_size);
         let mut extended_solutions_buffer = Vec::with_capacity(
             runtime_solutions_processor.extend_iteration_population_buffer_size()
         );
@@ -865,8 +881,6 @@ impl<'a, S> Optimizer<S> for AGEMOEA2Optimizer<'a, S>
                 break;
             }
 
-            let mut child_pop: Vec<Candidate<S>> = Vec::with_capacity(pop_size);
-
             while child_pop.len() < pop_size {
                 let p1 = parent_pop.choose_mut(&mut rnd).unwrap().clone();
                 let p2 = parent_pop.choose_mut(&mut rnd).unwrap().clone();
@@ -918,7 +932,10 @@ impl<'a, S> Optimizer<S> for AGEMOEA2Optimizer<'a, S>
                 .collect()
             );
 
-            parent_pop.extend(child_pop);
+            while let Some(candidate) = child_pop.pop()
+            {
+                parent_pop.push(candidate);
+            }
 
             let sorted = self.sort(parent_pop);
 
