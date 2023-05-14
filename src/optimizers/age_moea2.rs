@@ -840,12 +840,11 @@ impl<'a, S> Optimizer<S> for AGEMOEA2Optimizer<'a, S>
                     self.best_solutions.push((vals, c.sol.clone()));
                 });
 
-            let mut preprocess_vec = Vec::with_capacity(parent_pop.len());
-            for child in parent_pop.iter_mut()
-            {
-                preprocess_vec.push(&mut child.sol);
-            }
-            runtime_solutions_processor.iter_solutions(preprocess_vec);
+            runtime_solutions_processor.iter_solutions(
+                parent_pop.iter_mut()
+                .map(|child| &mut child.sol)
+                .collect()
+            );
 
             if parent_pop
                 .iter()
@@ -912,12 +911,12 @@ impl<'a, S> Optimizer<S> for AGEMOEA2Optimizer<'a, S>
                 });
             }
 
-            let mut preprocess_vec = Vec::with_capacity(child_pop.len());
-            for child in child_pop.iter_mut()
-            {
-                preprocess_vec.push(&mut child.sol);
-            }
-            runtime_solutions_processor.new_candidates(preprocess_vec);
+            runtime_solutions_processor.new_candidates(
+                child_pop
+                .iter_mut()
+                .map(|child| &mut child.sol)
+                .collect()
+            );
 
             parent_pop.extend(child_pop);
 
