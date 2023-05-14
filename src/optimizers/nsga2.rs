@@ -307,7 +307,9 @@ impl<'a, S> NSGA2Optimizer<'a, S>
             .map(|p| self.values(&p.sol))
             .collect();
 
-        let ens_fronts = ens_nondominated_sorting(&objs);
+        let mut ens_fronts = vec![];
+
+        ens_nondominated_sorting(&objs, &mut vec![], &mut ens_fronts);
 
         let mut flat_fronts: Vec<Candidate<S>> = Vec::with_capacity(pop.len());
         for (fidx, f) in ens_fronts.into_iter().enumerate() {

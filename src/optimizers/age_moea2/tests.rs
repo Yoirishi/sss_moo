@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use itertools::Itertools;
 use crate::optimizers::age_moea2::{highest_value_and_index_in_vector, argpartition, matrix_slice_axis_one, sum_along_axis_one, take_along_axis_one, point_to_line_distance, find_corner_solution, norm_matrix_by_axis_one_and_ord, pairwise_distances, survival_score, newton_raphson, get_crowd_distance, meshgrid, minkowski_distances, argsort, mask_positive_count, get_vector_according_indicies};
 use crate::optimizers::age_moea2::test_helpers::*;
-use crate::optimizers::nsga3_final::*;
+use crate::optimizers::nsga3::*;
 
 #[test]
 fn test_argpartition_fn()
@@ -244,7 +244,7 @@ fn sort_debug()
         .map(|candidate| candidate.front < max_front_no)
         .collect();
 
-    assert_eq!(selected_fronts, 
+    assert_eq!(selected_fronts,
                vec![true,false,true,false,true,true,false,false,false,true,true,true,true,false,false,true,false,true,false,false,true,false,false,true,false,true,false,false,false,false,false,false,false,false,false,false,false,true,false,false,false,false,true,true,true,true,false,false,false,false,true,false,false,true,false,false,true,false,false,false,false,false,false,false,false,true,false,false,true,true,false,false,false,false,true,true,true,false,false,false,true,true,false,false,true,false,false,true,false,false,false,false,true,false,false,true,false,false,true,true,false,false,false,false,true,false,false,true,false,true,true,false,true,false,true,true,true,true,false,true,true,true,true,true,false,false,true,true,true,true,true,true,true,false,false,true,false,false,false,true,false,true,true,false,true,true,true,true,true,false,false,true,false,false,false,false,false,false,true,false,false,true,true,false,false,true,false,false,true,true,false,false,true,false,false,false,false,true,true,false,false,false,true,true
                ]);
 

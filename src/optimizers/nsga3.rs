@@ -20,7 +20,7 @@ use rand_distr::num_traits::real::Real;
 use crate::evaluator::Evaluator;
 use crate::{Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
 use crate::ens_nondominating_sorting::ens_nondominated_sorting;
-use crate::optimizers::nsga3_final::dist_matrix::DistMatrix;
+use crate::optimizers::nsga3::dist_matrix::DistMatrix;
 use crate::optimizers::Optimizer;
 
 type SolutionId = u64;
@@ -267,7 +267,9 @@ impl<'a, S> NSGA3Optimizer<'a, S>
             .map(|p| self.values(&p.sol))
             .collect();
 
-        let ens_fronts = ens_nondominated_sorting(&objs);
+        let mut ens_fronts = vec![];
+
+        ens_nondominated_sorting(&objs, &mut vec![], &mut ens_fronts);
 
         let mut flat_fronts: Vec<Candidate<S>> = Vec::with_capacity(pop.len());
         for (fidx, f) in ens_fronts.into_iter().enumerate() {

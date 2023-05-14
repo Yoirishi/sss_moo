@@ -1,4 +1,4 @@
-use crate::optimizers::nsga3_final::{*};
+use crate::optimizers::nsga3::{*};
 
 fn get_points() -> Vec<Vec<f64>> {
     let mut points = vec![];

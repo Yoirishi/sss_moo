@@ -14,7 +14,7 @@ use rand_distr::num_traits::real::Real;
 use crate::{Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
 use crate::ens_nondominating_sorting::ens_nondominated_sorting;
 use crate::evaluator::Evaluator;
-use crate::optimizers::nsga3_final::*;
+use crate::optimizers::nsga3::*;
 use crate::optimizers::Optimizer;
 
 type SolutionId = u64;
@@ -35,7 +35,10 @@ struct SortingBuffer<S>
     points_on_first_front: Vec<Vec<f64>>,
     crowding_distance_i: Vec<f64>,
     crowding_distance: Vec<f64>,
-    last_front_indicies: Vec<usize>
+    last_front_indicies: Vec<usize>,
+    ens_fronts: Vec<Vec<usize>>,
+    ens_indicies: Vec<usize>,
+    flat_fronts: Vec<Candidate<S>>
 }
 
 pub struct AGEMOEA2Optimizer<'a, S: Solution> {
@@ -72,6 +75,9 @@ impl<'a, S> AGEMOEA2Optimizer<'a, S>
                 crowding_distance_i: vec![],
                 crowding_distance: vec![],
                 last_front_indicies: vec![],
+                ens_fronts: vec![],
+                ens_indicies: vec![],
+                flat_fronts: vec![],
             },
         }
     }
@@ -106,15 +112,19 @@ impl<'a, S> AGEMOEA2Optimizer<'a, S>
             self.sorting_buffer.objs.push(objs_cand)
         }
 
-        let ens_fronts = ens_nondominated_sorting(&self.sorting_buffer.objs);
+        ens_nondominated_sorting(
+            &self.sorting_buffer.objs,
+            &mut self.sorting_buffer.ens_indicies,
+            &mut self.sorting_buffer.ens_fronts
+        );
 
-        let mut flat_fronts: Vec<Candidate<S>> = Vec::with_capacity(pop.len());
-        for (fidx, f) in ens_fronts.into_iter().enumerate() {
+        self.sorting_buffer.flat_fronts.clear();
+        for (fidx, f) in self.sorting_buffer.ens_fronts.iter().enumerate() {
             for index in f {
-                let p = &pop[index];
+                let p = &pop[*index];
                 let id = p.id;
 
-                flat_fronts.push(Candidate {
+                self.sorting_buffer.flat_fronts.push(Candidate {
                     id,
                     sol: p.sol.clone(),
                     front: fidx
@@ -122,10 +132,9 @@ impl<'a, S> AGEMOEA2Optimizer<'a, S>
             }
         }
 
-        let mut fronts = flat_fronts;
-        debug_assert!(!fronts.is_empty());
+        debug_assert!(!self.sorting_buffer.flat_fronts.is_empty());
 
-        let (clear_fronts, points) = AGEMOEA2Optimizer::separate_fronts_and_points(&self, &fronts);
+        let (clear_fronts, points) = AGEMOEA2Optimizer::separate_fronts_and_points(&self, &self.sorting_buffer.flat_fronts);
 
         let indicies = concatenate_matrix_rows(&clear_fronts);
 
@@ -133,7 +142,7 @@ impl<'a, S> AGEMOEA2Optimizer<'a, S>
         prepared_fronts.clear();
         for index in indicies
         {
-            prepared_fronts.push(fronts[index].clone());
+            prepared_fronts.push(self.sorting_buffer.flat_fronts[index].clone());
         }
 
         for (new_front_rank, indicies_of_candidate) in clear_fronts.iter().enumerate()
@@ -170,7 +179,8 @@ impl<'a, S> AGEMOEA2Optimizer<'a, S>
             .map(|candidate| candidate.front < max_front_no)
             .collect();
 
-        self.sorting_buffer.crowding_distance = vec!(0.; prepared_fronts.len());
+        self.sorting_buffer.crowding_distance.clear();
+        self.sorting_buffer.crowding_distance.extend((0..prepared_fronts.len()).map(|_| 0.));
 
         let mut ideal_point = points[0].clone();
 
