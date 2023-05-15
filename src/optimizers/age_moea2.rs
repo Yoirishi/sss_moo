@@ -92,7 +92,9 @@ struct SortingBuffer<S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clo
     selected_fronts: Vec<bool>,
     final_population: Vec<Candidate<S, DnaAllocatorType>>,
     best_candidates: Vec<(Vec<f64>, S)>,
-    flat_fronts: Vec<Candidate<S, DnaAllocatorType>>
+    flat_fronts: Vec<Candidate<S, DnaAllocatorType>>,
+    ideal_point: Vec<f64>,
+    normalization_vector: Vec<f64>
 }
 
 pub struct AGEMOEA2Optimizer<'a, S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> {
@@ -135,7 +137,9 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                 point_indicies_by_front: vec![],
                 selected_fronts,
                 final_population: vec![],
-                best_candidates: vec![]
+                best_candidates: vec![],
+                ideal_point: vec![],
+                normalization_vector: vec![]
             },
         }
     }
@@ -275,23 +279,26 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
         self.sorting_buffer.crowding_distance.clear();
         self.sorting_buffer.crowding_distance.extend((0..prepared_fronts.len()).map(|_| 0.));
 
-        let mut ideal_point = points[0].clone();
+        self.sorting_buffer.ideal_point.clear();
+        self.sorting_buffer.ideal_point.extend((0..points.len()).map(|_| f64::INFINITY));
 
-        for point in points.iter().skip(1)
+        for point in points.iter()
         {
             for (i, coordinate) in point.iter().enumerate()
             {
-                if *coordinate < ideal_point[i]
+                if *coordinate < self.sorting_buffer.ideal_point[i]
                 {
-                    ideal_point[i] = *coordinate
+                    self.sorting_buffer.ideal_point[i] = *coordinate
                 }
             }
         }
 
-        let (p, normalized_front_points, normalization_vector) =
+        self.sorting_buffer.normalization_vector.clear();
+        let (p, normalized_front_points) =
             survival_score(
                 &self.sorting_buffer.points_on_first_front,
-                &ideal_point
+                &self.sorting_buffer.ideal_point,
+                &mut self.sorting_buffer.normalization_vector
             );
 
 
@@ -307,14 +314,14 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                 .map(|current_point|
                     {
                         current_point.iter()
-                            .zip(&normalization_vector)
+                            .zip(&self.sorting_buffer.normalization_vector)
                             .map(|(enumerator, denominator)| *enumerator / *denominator)
                             .collect()
                     })
                 .collect::<Vec<Vec<f64>>>();
 
             self.sorting_buffer.crowding_distance_i.extend(
-                minkowski_distances(&normalized_front, &ideal_point, p)
+                minkowski_distances(&normalized_front, &self.sorting_buffer.ideal_point, p)
                 .iter()
                 .map(|distance| 1. / *distance)
             );
@@ -342,11 +349,10 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             );
         rank.reverse();
 
-        let count_of_selected = mask_positive_count(&self.sorting_buffer.selected_fronts);
-        let n_surv = self.meta.population_size();
 
-        let count_of_remaining = n_surv - count_of_selected;
-        for i in 0..count_of_remaining
+
+
+        for i in 0..self.meta.population_size()-mask_positive_count(&self.sorting_buffer.selected_fronts)
         {
             while self.sorting_buffer.selected_fronts.len() <= self.sorting_buffer.last_front_indicies[rank[i]]
             {
@@ -529,14 +535,15 @@ fn get_crowd_distance(front_size: usize, selected: &mut Vec<bool>, distances: &V
     crowd_dist
 }
 
-fn survival_score(points_on_front: &Vec<Vec<f64>>, ideal_point: &Vec<f64>) -> (f64, Vec<f64>, Vec<f64>) {
+fn survival_score(points_on_front: &Vec<Vec<f64>>, ideal_point: &Vec<f64>, normalization_vector: &mut Vec<f64>) -> (f64, Vec<f64>) {
     let mut p = 1.;
     let front_size = points_on_front.len();
     let count_of_objectives = points_on_front[0].len();
     let mut crowding_distance = vec![0.; front_size];
     if front_size < count_of_objectives //looks like crutch
     {
-        return (p, crowding_distance, np_max_matrix_axis_one(&points_on_front))
+        np_max_matrix_axis_one(points_on_front, normalization_vector);
+        (p, crowding_distance)
     }
     else
     {
@@ -548,7 +555,8 @@ fn survival_score(points_on_front: &Vec<Vec<f64>>, ideal_point: &Vec<f64>) -> (f
 
         let extreme_point_indicies = find_corner_solution(&pre_normalized);
 
-        let (normalized_first_front, normalization_vector) = normalize(&pre_normalized, &extreme_point_indicies);
+        eval_normalization_vec(&pre_normalized, &extreme_point_indicies, normalization_vector);
+        let normalized_first_front = normalize(&points_on_front, normalization_vector);
 
         let mut selected = vec![false; pre_normalized.len()];
 
@@ -573,7 +581,7 @@ fn survival_score(points_on_front: &Vec<Vec<f64>>, ideal_point: &Vec<f64>) -> (f
 
         crowding_distance = get_crowd_distance(front_size, &mut selected, &distances);
 
-        return (p, crowding_distance, normalization_vector)
+        (p, crowding_distance)
     }
 }
 
@@ -648,11 +656,11 @@ fn norm_matrix_by_axis_one_and_ord(matrix: &Vec<Vec<f64>>, ord: f64) -> Vec<f64>
     result
 }
 
-fn normalize(points_on_front: &Vec<Vec<f64>>, extreme_point_indicies: &Vec<usize>) -> (Vec<Vec<f64>>, Vec<f64>)
+fn eval_normalization_vec(points_on_front: &Vec<Vec<f64>>, extreme_point_indicies: &Vec<usize>, destination: &mut Vec<f64>) -> ()
 {
     if extreme_point_indicies.len() != extreme_point_indicies.clone().into_iter().unique().collect::<Vec<usize>>().len()
     {
-        normalize_fallback(&points_on_front)
+        np_max_matrix_axis_one(&points_on_front, destination);
     } else
     {
         let extreme_points = get_rows_from_matrix_by_indices_vector(&points_on_front, &extreme_point_indicies);
@@ -661,31 +669,20 @@ fn normalize(points_on_front: &Vec<Vec<f64>>, extreme_point_indicies: &Vec<usize
             Ok( plane ) => {
                 if any_in_vec_is(&plane, |val| val == f64::NAN || val == f64::NEG_INFINITY || val == f64::INFINITY)
                 {
-                    return normalize_fallback(&points_on_front)
+                    return np_max_matrix_axis_one(&points_on_front, destination);
                 }
 
                 let prepared_normalization_vec = plane.into_iter().map(|a| 1. / a).collect::<Vec<f64>>();
 
                 if any_in_vec_is(&prepared_normalization_vec, |val| val == f64::NAN || val == f64::NEG_INFINITY || val == f64::INFINITY)
                 {
-                    return normalize_fallback(&points_on_front)
+                    return np_max_matrix_axis_one(&points_on_front, destination);
                 }
 
-                let normalization_vec = prepared_normalization_vec.into_iter().map(|a| if a == 0. { 1. } else { a }).collect::<Vec<f64>>();
-
-                let normalized_front = points_on_front.iter()
-                    .map(|point|
-                        point.iter()
-                            .zip(&normalization_vec)
-                            .map(|(a, b)| *a / *b)
-                            .collect::<Vec<f64>>())
-                    .collect();
-
-                (normalized_front, normalization_vec)
-
+                destination.extend(prepared_normalization_vec.into_iter().map(|a| if a == 0. { 1. } else { a }));
             }
             Err(_) => {
-                normalize_fallback(&points_on_front)
+                np_max_matrix_axis_one(&points_on_front, destination);
             }
         }
     }
@@ -698,34 +695,32 @@ fn any_in_vec_is<T, CompareFn>(source1: &Vec<T>, compare_fn: CompareFn) -> bool
     source1.iter().all(|&elem1| compare_fn(elem1))
 }
 
-fn normalize_fallback(points_on_front: &Vec<Vec<f64>>) -> (Vec<Vec<f64>>, Vec<f64>)
+fn normalize(points_on_front: &Vec<Vec<f64>>, normalization_vector: &Vec<f64>) -> Vec<Vec<f64>>
 {
-    let normalization_vec = np_max_matrix_axis_one(&points_on_front);
     let normalized_points = points_on_front.iter()
         .map(|point|
             point.iter()
-                .zip(&normalization_vec)
+                .zip(normalization_vector)
                 .map(|(a, b)| *a / *b)
                 .collect())
         .collect();
-    (normalized_points, normalization_vec)
+    normalized_points
 }
 
 
-fn np_max_matrix_axis_one(source: &Vec<Vec<f64>>) -> Vec<f64>
+fn np_max_matrix_axis_one(source: &Vec<Vec<f64>>, destination: &mut Vec<f64>) -> ()
 {
-    let mut result = source[0].clone();
-    for row in source.iter().skip(1)
+    destination.extend((0..source[0].len()).map(|_| f64::NEG_INFINITY));
+    for row in source.iter()
     {
         for (i, val) in row.iter().enumerate()
         {
-            if result[i] < *val
+            if destination[i] < *val
             {
-                result[i] = *val
+                destination[i] = *val
             }
         }
     }
-    result
 }
 
 
