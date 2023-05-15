@@ -218,7 +218,12 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
         {
             for point_index in front
             {
-                prepared_fronts.push(self.sorting_buffer.flat_fronts[*point_index].clone());
+                let new_cand =
+                    candidate_allocator.clone_from(
+                        dna_allocator,
+                        &self.sorting_buffer.flat_fronts[*point_index]
+                    );
+                prepared_fronts.push(new_cand);
             }
         }
 
@@ -229,7 +234,9 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
         for index in clear_fronts[0].iter()
         {
             prepared_fronts[*index].front = 0;
-            self.sorting_buffer.best_candidates.push((self.sorting_buffer.points[*index].clone(), prepared_fronts[*index].sol.clone()))
+            let new_sol =
+                dna_allocator.clone_from_dna(&prepared_fronts[*index].sol);
+            self.sorting_buffer.best_candidates.push((self.sorting_buffer.points[*index].clone(), new_sol))
         }
 
 
@@ -369,7 +376,12 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
         {
             if *is_survive
             {
-                self.sorting_buffer.final_population.push(prepared_fronts[child_index].clone());
+                let new_cand =
+                    candidate_allocator.clone_from(
+                        dna_allocator,
+                        &prepared_fronts[child_index]
+                    );
+                self.sorting_buffer.final_population.push(new_cand);
             }
         }
     }
