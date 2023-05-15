@@ -10,6 +10,7 @@ use std::ops::{Add, Deref};
 use std::usize;
 use itertools::{Itertools, min, sorted};
 use rand::{Rng, thread_rng};
+use rand::rngs::ThreadRng;
 use rand_distr::num_traits::Num;
 use rand_distr::num_traits::real::Real;
 use crate::{Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
@@ -58,13 +59,11 @@ impl<S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuf
         }
     }
 
-    pub fn clone_from(&mut self, dna_allocator: &mut DnaAllocatorType, other_candidate: &Candidate<S, DnaAllocatorType>) -> Candidate<S, DnaAllocatorType>
+    pub fn clone_from_candidate(&mut self, dna_allocator: &mut DnaAllocatorType, other_candidate: &Candidate<S, DnaAllocatorType>) -> Candidate<S, DnaAllocatorType>
     {
         let sol = CloneReallocationMemoryBuffer::clone_from_dna(dna_allocator, &other_candidate.sol);
 
-        let mut new_candidate = self.allocate(dna_allocator, sol, other_candidate.front);
-
-        new_candidate.clone_from(other_candidate);
+        let new_candidate = self.allocate(dna_allocator, sol, other_candidate.front);
 
         new_candidate
     }
@@ -144,11 +143,11 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
         }
     }
 
-    fn odds(&self, ratio: &Ratio) -> bool {
-        thread_rng().gen_ratio(ratio.0, ratio.1)
+    fn odds(&self, thread_rng: &mut ThreadRng, ratio: &Ratio) -> bool {
+        thread_rng.gen_ratio(ratio.0, ratio.1)
     }
 
-    fn tournament(&self, candidate_allocator: &mut CandidateAllocator<S, DnaAllocatorType>, p1: Candidate<S, DnaAllocatorType>, p2: Candidate<S, DnaAllocatorType>) -> Candidate<S, DnaAllocatorType> {
+    fn tournament(&self, thread_rng: &mut ThreadRng, candidate_allocator: &mut CandidateAllocator<S, DnaAllocatorType>, p1: Candidate<S, DnaAllocatorType>, p2: Candidate<S, DnaAllocatorType>) -> Candidate<S, DnaAllocatorType> {
         if p1.front < p2.front {
             candidate_allocator.deallocate(p2);
             p1
@@ -156,9 +155,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             candidate_allocator.deallocate(p1);
             p2
         } else {
-            let mut rnd = thread_rng();
-
-            if rnd.gen_ratio(1, 2)
+            if thread_rng.gen_ratio(1, 2)
             {
                 candidate_allocator.deallocate(p2);
                 p1
@@ -192,12 +189,15 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             &mut self.sorting_buffer.ens_fronts
         );
 
-        self.sorting_buffer.flat_fronts.clear();
+        while let Some(cand) = self.sorting_buffer.flat_fronts.pop()
+        {
+            candidate_allocator.deallocate(cand);
+        }
         for (fidx, f) in self.sorting_buffer.ens_fronts.iter().enumerate() {
             for index in f {
                 let p = &pop[*index];
 
-                let mut new_cand = candidate_allocator.clone_from(dna_allocator, p);
+                let mut new_cand = candidate_allocator.clone_from_candidate(dna_allocator, p);
 
                 new_cand.front = fidx;
 
@@ -214,20 +214,33 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
         let points = &self.sorting_buffer.points;
 
         let prepared_fronts = &mut self.sorting_buffer.prepared_fronts;
-        prepared_fronts.clear();
+        while let Some(cand) = prepared_fronts.pop()
+        {
+            candidate_allocator.deallocate(cand);
+        }
         for front in &self.sorting_buffer.point_indicies_by_front
         {
             for point_index in front
             {
-                prepared_fronts.push(self.sorting_buffer.flat_fronts[*point_index].clone());
+                let new_cand =
+                    candidate_allocator.clone_from_candidate(
+                        dna_allocator,
+                        &self.sorting_buffer.flat_fronts[*point_index]
+                    );
+                prepared_fronts.push(new_cand);
             }
         }
 
-        self.sorting_buffer.best_candidates.clear();
+        while let Some(best_sol) = self.sorting_buffer.best_candidates.pop()
+        {
+            dna_allocator.deallocate(best_sol.1);
+        }
         for index in clear_fronts[0].iter()
         {
             prepared_fronts[*index].front = 0;
-            self.sorting_buffer.best_candidates.push((self.sorting_buffer.points[*index].clone(), prepared_fronts[*index].sol.clone()))
+            let new_sol =
+                dna_allocator.clone_from_dna(&prepared_fronts[*index].sol);
+            self.sorting_buffer.best_candidates.push((self.sorting_buffer.points[*index].clone(), new_sol))
         }
 
 
@@ -361,14 +374,20 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             self.sorting_buffer.selected_fronts[self.sorting_buffer.last_front_indicies[rank[i]]] = true
         }
 
-
-        self.sorting_buffer.final_population.clear();
-
+        while let Some(cand) = self.sorting_buffer.final_population.pop()
+        {
+            candidate_allocator.deallocate(cand);
+        }
         for (child_index, is_survive) in self.sorting_buffer.selected_fronts.iter().enumerate()
         {
             if *is_survive
             {
-                self.sorting_buffer.final_population.push(prepared_fronts[child_index].clone());
+                let new_cand =
+                    candidate_allocator.clone_from_candidate(
+                        dna_allocator,
+                        &prepared_fronts[child_index]
+                    );
+                self.sorting_buffer.final_population.push(new_cand);
             }
         }
     }
@@ -963,9 +982,17 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimize
 
             runtime_solutions_processor.iteration_num(iter);
 
-            self.best_solutions.clear();
+            if let Some((_, sol)) = self.best_solutions.pop()
+            {
+                runtime_solutions_processor.dna_allocator().deallocate(sol);
+            }
             for solution in self.sorting_buffer.best_candidates.iter() {
-                self.best_solutions.push(solution.clone())
+                self.best_solutions.push(
+                    (
+                        solution.0.clone(),
+                        runtime_solutions_processor.dna_allocator().clone_from_dna(&solution.1)
+                    )
+                )
             }
 
             runtime_solutions_processor.iter_solutions(
@@ -994,35 +1021,35 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimize
             }
 
             while child_pop.len() < pop_size {
-                let p1 = candidate_allocator.clone_from(
+                let p1 = candidate_allocator.clone_from_candidate(
                     runtime_solutions_processor.dna_allocator(),
                     self.sorting_buffer.final_population.choose_mut(&mut rnd).unwrap()
                 );
-                let p2 = candidate_allocator.clone_from(
+                let p2 = candidate_allocator.clone_from_candidate(
                     runtime_solutions_processor.dna_allocator(),
                     self.sorting_buffer.final_population.choose_mut(&mut rnd).unwrap()
                 );
-                let p3 = candidate_allocator.clone_from(
+                let p3 = candidate_allocator.clone_from_candidate(
                     runtime_solutions_processor.dna_allocator(),
                     self.sorting_buffer.final_population.choose_mut(&mut rnd).unwrap()
                 );
-                let p4 = candidate_allocator.clone_from(
+                let p4 = candidate_allocator.clone_from_candidate(
                     runtime_solutions_processor.dna_allocator(),
                     self.sorting_buffer.final_population.choose_mut(&mut rnd).unwrap()
                 );
 
-                let mut c1 = self.tournament(&mut candidate_allocator, p1, p2);
-                let mut c2 = self.tournament(&mut candidate_allocator, p3, p4);
+                let mut c1 = self.tournament(&mut rnd, &mut candidate_allocator, p1, p2);
+                let mut c2 = self.tournament(&mut rnd, &mut candidate_allocator, p3, p4);
 
-                if self.odds(crossover_odds) {
+                if self.odds(&mut rnd, crossover_odds) {
                     c1.sol.crossover(runtime_solutions_processor.dna_allocator(), &mut c2.sol);
                 };
 
-                if self.odds(mutation_odds) {
+                if self.odds(&mut rnd, mutation_odds) {
                     c1.sol.mutate(runtime_solutions_processor.dna_allocator());
                 };
 
-                if self.odds(mutation_odds) {
+                if self.odds(&mut rnd, mutation_odds) {
                     c2.sol.mutate(runtime_solutions_processor.dna_allocator());
                 };
 
