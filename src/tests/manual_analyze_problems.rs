@@ -537,7 +537,7 @@ fn print_3d_images_for_optimizers() {
         vec![
             //|optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)),
             //|optimizer_params: ArrayOptimizerParams| Box::new(nsga3_final::NSGA3Optimizer::new(optimizer_params, ReferenceDirections::new(3, 5).reference_directions))
-            //|optimizer_params: ArrayOptimizerParams| Box::new(AGEMOEA2Optimizer::new(optimizer_params))
+            |optimizer_params: ArrayOptimizerParams| Box::new(AGEMOEA2Optimizer::new(optimizer_params))
         ],
     );
 
@@ -598,7 +598,7 @@ fn get_metrics_dir(root: &str) -> String
 
 fn get_root_dir() -> String
 {
-    env::var("OUTPUT_DIRECTORY").unwrap_or("D:/tmp/test_optimizers".to_string())
+    env::var("OUTPUT_DIRECTORY").unwrap_or("E:/tmp/test_optimizers".to_string())
 }
 
 
