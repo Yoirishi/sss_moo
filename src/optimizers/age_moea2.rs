@@ -10,6 +10,7 @@ use std::ops::{Add, Deref};
 use std::usize;
 use itertools::{Itertools, min, sorted};
 use rand::{Rng, thread_rng};
+use rand::rngs::ThreadRng;
 use rand_distr::num_traits::Num;
 use rand_distr::num_traits::real::Real;
 use crate::{Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
@@ -140,11 +141,11 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
         }
     }
 
-    fn odds(&self, ratio: &Ratio) -> bool {
-        thread_rng().gen_ratio(ratio.0, ratio.1)
+    fn odds(&self, thread_rng: &mut ThreadRng, ratio: &Ratio) -> bool {
+        thread_rng.gen_ratio(ratio.0, ratio.1)
     }
 
-    fn tournament(&self, candidate_allocator: &mut CandidateAllocator<S, DnaAllocatorType>, p1: Candidate<S, DnaAllocatorType>, p2: Candidate<S, DnaAllocatorType>) -> Candidate<S, DnaAllocatorType> {
+    fn tournament(&self, thread_rng: &mut ThreadRng, candidate_allocator: &mut CandidateAllocator<S, DnaAllocatorType>, p1: Candidate<S, DnaAllocatorType>, p2: Candidate<S, DnaAllocatorType>) -> Candidate<S, DnaAllocatorType> {
         if p1.front < p2.front {
             candidate_allocator.deallocate(p2);
             p1
@@ -152,9 +153,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             candidate_allocator.deallocate(p1);
             p2
         } else {
-            let mut rnd = thread_rng();
-
-            if rnd.gen_ratio(1, 2)
+            if thread_rng.gen_ratio(1, 2)
             {
                 candidate_allocator.deallocate(p2);
                 p1
@@ -1035,18 +1034,18 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimize
                     self.sorting_buffer.final_population.choose_mut(&mut rnd).unwrap()
                 );
 
-                let mut c1 = self.tournament(&mut candidate_allocator, p1, p2);
-                let mut c2 = self.tournament(&mut candidate_allocator, p3, p4);
+                let mut c1 = self.tournament(&mut rnd, &mut candidate_allocator, p1, p2);
+                let mut c2 = self.tournament(&mut rnd, &mut candidate_allocator, p3, p4);
 
-                if self.odds(crossover_odds) {
+                if self.odds(&mut rnd, crossover_odds) {
                     c1.sol.crossover(runtime_solutions_processor.dna_allocator(), &mut c2.sol);
                 };
 
-                if self.odds(mutation_odds) {
+                if self.odds(&mut rnd, mutation_odds) {
                     c1.sol.mutate(runtime_solutions_processor.dna_allocator());
                 };
 
-                if self.odds(mutation_odds) {
+                if self.odds(&mut rnd, mutation_odds) {
                     c2.sol.mutate(runtime_solutions_processor.dna_allocator());
                 };
 

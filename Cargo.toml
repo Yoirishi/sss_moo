@@ -1,6 +1,6 @@
 [package]
 name = "sss_moo"
-version = "0.7.4"
+version = "0.7.5"
 edition = "2021"
 repository = "https://github.com/Tiikara/sss_moo"
 keywords = ["moo", "optimization"]
