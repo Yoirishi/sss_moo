@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 pub trait CloneReallocationMemoryBuffer<Dna>
 {
-    fn clone_from(&mut self, other_dna: &Dna) -> Dna;
+    fn clone_from_dna(&mut self, other_dna: &Dna) -> Dna;
     fn deallocate(&mut self, dna: Dna);
 }
 
@@ -14,7 +14,7 @@ pub struct SimpleCloneAllocator<T: Clone>
 
 impl<T: Clone> CloneReallocationMemoryBuffer<T> for SimpleCloneAllocator<T>
 {
-    fn clone_from(&mut self, other_dna: &T) -> T {
+    fn clone_from_dna(&mut self, other_dna: &T) -> T {
         other_dna.clone()
     }
 

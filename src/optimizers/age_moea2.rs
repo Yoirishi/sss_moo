@@ -73,7 +73,7 @@ impl<S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuf
 
     pub fn clone_from(&mut self, dna_allocator: &mut DnaAllocatorType, other_candidate: &Candidate<S, DnaAllocatorType>) -> Candidate<S, DnaAllocatorType>
     {
-        let sol = CloneReallocationMemoryBuffer::clone_from(dna_allocator, &other_candidate.sol);
+        let sol = CloneReallocationMemoryBuffer::clone_from_dna(dna_allocator, &other_candidate.sol);
 
         let mut new_candidate = self.allocate(dna_allocator, sol, other_candidate.front);
 
