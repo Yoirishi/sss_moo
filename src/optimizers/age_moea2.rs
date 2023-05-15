@@ -150,12 +150,13 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
     }
 
     #[allow(clippy::needless_range_loop)]
-    fn sort(&mut self,
-            candidate_allocator: &mut CandidateAllocator<S, DnaAllocatorType>,
-            dna_allocator: &mut DnaAllocatorType,
-            initial_pop: Option<&Vec<Candidate<S, DnaAllocatorType>>>) -> ()
+    fn sort(
+        &mut self,
+        candidate_allocator: &mut CandidateAllocator<S, DnaAllocatorType>,
+        dna_allocator: &mut DnaAllocatorType
+    )
     {
-        let pop = initial_pop.unwrap_or(&self.sorting_buffer.final_population);
+        let pop = &self.sorting_buffer.final_population;
 
         self.sorting_buffer.objs.clear();
         for cand in pop.iter()
@@ -940,27 +941,25 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimize
             phantom2: Default::default(),
         };
 
-        let mut pop: Vec<_> = (0..pop_size)
+        self.sorting_buffer.final_population.clear();
+        self.sorting_buffer.final_population.extend((0..pop_size)
             .map(|_| {
                 candidate_allocator.allocate(
                     runtime_solutions_processor.dna_allocator(),
                     self.meta.random_solution(),
                     0)
-            })
-            .collect();
+            }));
 
-        let mut preprocess_vec = Vec::with_capacity(pop.len());
-        for child in pop.iter_mut()
-        {
-            preprocess_vec.push(&mut child.sol);
-        }
-        runtime_solutions_processor.new_candidates(preprocess_vec);
-
+        runtime_solutions_processor.new_candidates(
+            self.sorting_buffer.final_population
+            .iter_mut()
+            .map(|child| &mut child.sol)
+            .collect()
+        );
 
         self.sort(
             &mut candidate_allocator,
-            runtime_solutions_processor.dna_allocator(),
-            Some(&pop)
+            runtime_solutions_processor.dna_allocator()
         );
 
         for iter in 0.. {
@@ -1060,7 +1059,8 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimize
                 child_pop.push(c2);
             }
 
-            runtime_solutions_processor.extend_iteration_population(&self.sorting_buffer.final_population.iter_mut()
+            runtime_solutions_processor.extend_iteration_population(
+                &self.sorting_buffer.final_population.iter_mut()
                 .map(|child| &mut child.sol)
                 .collect(),
                 &mut extended_solutions_buffer);
@@ -1084,9 +1084,9 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimize
                 self.sorting_buffer.final_population.push(candidate);
             }
 
-            self.sort(&mut candidate_allocator,
-                      runtime_solutions_processor.dna_allocator(),
-                      None
+            self.sort(
+                &mut candidate_allocator,
+                runtime_solutions_processor.dna_allocator()
             );
         }
     }
