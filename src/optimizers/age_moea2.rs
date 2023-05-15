@@ -970,7 +970,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimize
 
             runtime_solutions_processor.iteration_num(iter);
 
-            if let Some((_, sol)) = self.best_solutions.pop()
+            while let Some((_, sol)) = self.best_solutions.pop()
             {
                 runtime_solutions_processor.dna_allocator().deallocate(sol);
             }
