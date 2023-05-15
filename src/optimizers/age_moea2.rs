@@ -19,11 +19,8 @@ use crate::evaluator::Evaluator;
 use crate::optimizers::nsga3::*;
 use crate::optimizers::Optimizer;
 
-type SolutionId = u64;
-
 #[derive(Debug, Clone, Copy)]
 struct Candidate<S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> {
-    id: SolutionId,
     sol: S,
     front: usize,
     phantom: PhantomData<DnaAllocatorType>
@@ -31,7 +28,6 @@ struct Candidate<S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocat
 
 struct CandidateAllocator<S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone>
 {
-    last_id: SolutionId,
     buffer_candidates: Vec<Candidate<S, DnaAllocatorType>>,
     phantom1: PhantomData<DnaAllocatorType>,
     phantom2: PhantomData<S>
@@ -39,20 +35,12 @@ struct CandidateAllocator<S: Solution<DnaAllocatorType>, DnaAllocatorType: Clone
 
 impl<S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> CandidateAllocator<S, DnaAllocatorType>
 {
-    pub fn next_id(&mut self) -> SolutionId {
-        self.last_id += 1;
-        self.last_id
-    }
-
     pub fn allocate(&mut self, dna_allocator: &mut DnaAllocatorType, mut sol: S, front: usize) -> Candidate<S, DnaAllocatorType>
     {
-        let id = self.next_id();
-
         match self.buffer_candidates.pop()
         {
             None => {
                 Candidate {
-                    id,
                     sol,
                     front,
                     phantom: Default::default(),
@@ -63,7 +51,6 @@ impl<S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuf
 
                 dna_allocator.deallocate(sol);
 
-                dna.id = id;
                 dna.front = front;
 
                 dna
@@ -105,7 +92,6 @@ struct SortingBuffer<S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clo
 
 pub struct AGEMOEA2Optimizer<'a, S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> {
     meta: Box<dyn Meta<'a, S, DnaAllocatorType> + 'a>,
-    last_id: SolutionId,
     best_solutions: Vec<(Vec<f64>, S)>,
     sorting_buffer: SortingBuffer<S, DnaAllocatorType>
 }
@@ -128,7 +114,6 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
 
         AGEMOEA2Optimizer {
             meta: Box::new(meta),
-            last_id: 0,
             best_solutions: Vec::new(),
             sorting_buffer: SortingBuffer {
                 prepared_fronts: vec![],
@@ -912,7 +897,6 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimize
         );
 
         let mut candidate_allocator = CandidateAllocator {
-            last_id: 0,
             buffer_candidates: vec![],
             phantom1: Default::default(),
             phantom2: Default::default(),
@@ -1016,9 +1000,6 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimize
                 if self.odds(mutation_odds) {
                     c2.sol.mutate(runtime_solutions_processor.dna_allocator());
                 };
-
-                c1.id = candidate_allocator.next_id();
-                c2.id = candidate_allocator.next_id();
 
                 child_pop.push(c1);
                 child_pop.push(c2);
