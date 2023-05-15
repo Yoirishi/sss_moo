@@ -941,7 +941,10 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimize
             phantom2: Default::default(),
         };
 
-        self.sorting_buffer.final_population.clear();
+        while let Some(candidate) = self.sorting_buffer.final_population.pop()
+        {
+            candidate_allocator.deallocate(runtime_solutions_processor.dna_allocator(), candidate);
+        }
         self.sorting_buffer.final_population.extend((0..pop_size)
             .map(|_| {
                 candidate_allocator.allocate(
