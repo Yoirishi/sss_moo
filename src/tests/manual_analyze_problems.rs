@@ -17,6 +17,7 @@ use std::io::Write;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use rand::{Rng, thread_rng};
+use crate::dna_allocator::SimpleCloneAllocator;
 use crate::optimizers::age_moea2::AGEMOEA2Optimizer;
 use crate::optimizers::reference_direction_using_local_storage::ReferenceDirectionsUsingLocalStorage;
 use crate::optimizers::reference_directions::ReferenceDirections;
@@ -28,8 +29,8 @@ use crate::problem::dtlz::dtlz5::Dtlz5;
 use crate::problem::dtlz::dtlz6::Dtlz6;
 use crate::problem::dtlz::dtlz7::Dtlz7;
 
-fn optimize_and_get_best_solutions(optimizer: &mut Box<dyn Optimizer<ArraySolution>>,
-                                   solutions_runtime_array_processor: Box<&mut dyn SolutionsRuntimeProcessor<ArraySolution>>,
+fn optimize_and_get_best_solutions(optimizer: &mut Box<dyn Optimizer<ArraySolution, SimpleCloneAllocator<ArraySolution>>>,
+                                   solutions_runtime_array_processor: Box<&mut dyn SolutionsRuntimeProcessor<ArraySolution, SimpleCloneAllocator<ArraySolution>>>,
                                    terminate_early_count: usize) -> Vec<(Vec<f64>, ArraySolution)>
 {
     let mut evaluator: Box<(dyn Evaluator)> = Box::new(DefaultEvaluator::new(terminate_early_count));
@@ -56,7 +57,7 @@ fn mean_convergence_metric_for_solutions(problem: &Box<dyn Problem + Send>, solu
 }
 
 fn print_best_solutions_3d_to_gif(problem: &Box<dyn Problem + Send>,
-                                  optimizer: &Box<dyn Optimizer<ArraySolution>>,
+                                  optimizer: &Box<dyn Optimizer<ArraySolution, SimpleCloneAllocator<ArraySolution>>>,
                                   best_solutions: &Vec<(Vec<f64>, ArraySolution)>,
                                   path: &std::path::Path)
 {
@@ -113,13 +114,13 @@ fn new_array_optimizer_params(array_solution_evaluator: Box<dyn ArraySolutionEva
 struct ProblemsSolver
 {
     test_problems: Vec<(Box<dyn ArraySolutionEvaluator + Send>, Box<dyn Problem + Send>)>,
-    optimizer_creators: Vec<fn(ArrayOptimizerParams) -> Box<dyn Optimizer<ArraySolution>>>,
+    optimizer_creators: Vec<fn(ArrayOptimizerParams) -> Box<dyn Optimizer<ArraySolution, SimpleCloneAllocator<ArraySolution>>>>,
 }
 
 impl ProblemsSolver
 {
     pub fn new(test_problems: Vec<(Box<dyn ArraySolutionEvaluator + Send>, Box<dyn Problem + Send>)>,
-               optimizer_creators: Vec<fn(ArrayOptimizerParams) -> Box<dyn Optimizer<ArraySolution>>>) -> Self
+               optimizer_creators: Vec<fn(ArrayOptimizerParams) -> Box<dyn Optimizer<ArraySolution, SimpleCloneAllocator<ArraySolution>>>>) -> Self
     {
         ProblemsSolver {
             test_problems,

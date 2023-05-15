@@ -5,32 +5,35 @@ use rand::seq::SliceRandom;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::convert::identity;
+use std::marker::PhantomData;
 use crate::evaluator::Evaluator;
 use crate::{Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
+use crate::dna_allocator::CloneReallocationMemoryBuffer;
 use crate::ens_nondominating_sorting::ens_nondominated_sorting;
 use crate::optimizers::Optimizer;
 
 type SolutionId = u64;
 
 #[derive(Debug, Clone)]
-struct Candidate<S: Solution> {
+struct Candidate<S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> {
     id: SolutionId,
     sol: S,
     front: usize,
     distance: f64,
+    phantom: PhantomData<DnaAllocatorType>
 }
 
 /// NSGA-II optimizer
-pub struct NSGA2Optimizer<'a, S: Solution> {
-    meta: Box<dyn Meta<'a, S> + 'a>,
+pub struct NSGA2Optimizer<'a, S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> {
+    meta: Box<dyn Meta<'a, S, DnaAllocatorType> + 'a>,
     last_id: SolutionId,
     best_solutions: Vec<(Vec<f64>, S)>,
     predefined_solutions: Vec<S>,
 }
 
-impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
+impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimizer<S, DnaAllocatorType> for NSGA2Optimizer<'a, S, DnaAllocatorType>
     where
-        S: Solution,
+        S: Solution<DnaAllocatorType>,
 {
     fn name(&self) -> &str {
         "NSGA-II"
@@ -41,7 +44,7 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
     /// Since an optimization can produce a set of
     /// [Pareto optimal solutions](https://en.wikipedia.org/wiki/Pareto_front),
     /// the optimizer returns an iterator.
-    fn optimize(&mut self, eval: &mut Box<dyn Evaluator>, mut runtime_solutions_processor: Box<&mut dyn SolutionsRuntimeProcessor<S>>) {
+    fn optimize(&mut self, eval: &mut Box<dyn Evaluator>, mut runtime_solutions_processor: Box<&mut dyn SolutionsRuntimeProcessor<S, DnaAllocatorType>>) {
         let mut rnd = rand::thread_rng();
 
         let pop_size = self.meta.population_size();
@@ -49,7 +52,7 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
         let mutation_odds = self.meta.mutation_odds();
 
         // Buffer
-        let mut child_pop: Vec<Candidate<S>> = Vec::with_capacity(pop_size);
+        let mut child_pop: Vec<Candidate<S, DnaAllocatorType>> = Vec::with_capacity(pop_size);
         let mut extended_solutions_buffer = Vec::with_capacity(
             runtime_solutions_processor.extend_iteration_population_buffer_size()
         );
@@ -69,6 +72,7 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
                         sol,
                         front: 0,
                         distance: 0.0,
+                        phantom: Default::default(),
                     }
                 })
                 .collect();
@@ -83,6 +87,7 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
                         sol: predefined_solution,
                         front: 0,
                         distance: 0.0,
+                        phantom: Default::default(),
                     }
                 );
             }
@@ -182,6 +187,7 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
                         front: 0,
                         distance: 0.0,
                         sol: solution,
+                        phantom: Default::default(),
                     });
                 }
 
@@ -207,15 +213,15 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
                 let mut c2 = self.tournament(p3, p4);
 
                 if self.odds(crossover_odds) {
-                    c1.sol.crossover(&mut c2.sol);
+                    c1.sol.crossover(runtime_solutions_processor.dna_allocator(), &mut c2.sol);
                 };
 
                 if self.odds(mutation_odds) {
-                    c1.sol.mutate();
+                    c1.sol.mutate(runtime_solutions_processor.dna_allocator());
                 };
 
                 if self.odds(mutation_odds) {
-                    c2.sol.mutate();
+                    c2.sol.mutate(runtime_solutions_processor.dna_allocator());
                 };
 
                 c1.id = self.next_id();
@@ -255,12 +261,12 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
     }
 }
 
-impl<'a, S> NSGA2Optimizer<'a, S>
+impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> NSGA2Optimizer<'a, S, DnaAllocatorType>
     where
-        S: Solution,
+        S: Solution<DnaAllocatorType>,
 {
     /// Instantiate a new optimizer with a given meta params
-    pub fn new(meta: impl Meta<'a, S> + 'a) -> Self {
+    pub fn new(meta: impl Meta<'a, S, DnaAllocatorType> + 'a) -> Self {
         let pop_size = meta.population_size();
 
         NSGA2Optimizer {
@@ -285,7 +291,7 @@ impl<'a, S> NSGA2Optimizer<'a, S>
         thread_rng().gen_ratio(ratio.0, ratio.1)
     }
 
-    fn tournament(&self, p1: Candidate<S>, p2: Candidate<S>) -> Candidate<S> {
+    fn tournament(&self, p1: Candidate<S, DnaAllocatorType>, p2: Candidate<S, DnaAllocatorType>) -> Candidate<S, DnaAllocatorType> {
         let mut rnd = rand::thread_rng();
 
         if p1.front < p2.front {
@@ -302,7 +308,7 @@ impl<'a, S> NSGA2Optimizer<'a, S>
     }
 
     #[allow(clippy::needless_range_loop)]
-    fn nondominating_sort(&self, pop: &Vec<Candidate<S>>) -> Vec<Candidate<S>> {
+    fn nondominating_sort(&self, pop: &Vec<Candidate<S, DnaAllocatorType>>) -> Vec<Candidate<S, DnaAllocatorType>> {
         let objs = pop.iter()
             .map(|p| self.values(&p.sol))
             .collect();
@@ -311,7 +317,7 @@ impl<'a, S> NSGA2Optimizer<'a, S>
 
         ens_nondominated_sorting(&objs, &mut vec![], &mut ens_fronts);
 
-        let mut flat_fronts: Vec<Candidate<S>> = Vec::with_capacity(pop.len());
+        let mut flat_fronts: Vec<Candidate<S, DnaAllocatorType>> = Vec::with_capacity(pop.len());
         for (fidx, f) in ens_fronts.into_iter().enumerate() {
             for index in f {
                 let p = &pop[index];
@@ -322,6 +328,7 @@ impl<'a, S> NSGA2Optimizer<'a, S>
                     sol: p.sol.clone(),
                     front: fidx,
                     distance: 0.0,
+                    phantom: Default::default(),
                 });
             }
         }
@@ -389,7 +396,7 @@ impl<'a, S> NSGA2Optimizer<'a, S>
     }
 
     #[allow(clippy::borrowed_box)]
-    fn value(&self, s: &S, obj: &Box<dyn Objective<S> + 'a>) -> f64 {
+    fn value(&self, s: &S, obj: &Box<dyn Objective<S, DnaAllocatorType> + 'a>) -> f64 {
         self.meta
             .constraints()
             .iter()

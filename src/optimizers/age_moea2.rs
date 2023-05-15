@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 use rand::seq::SliceRandom;
 use std::convert::identity;
 use std::iter::Sum;
+use std::marker::PhantomData;
 use std::ops::{Add, Deref};
 use std::usize;
 use itertools::{Itertools, min, sorted};
@@ -12,25 +13,73 @@ use rand::{Rng, thread_rng};
 use rand_distr::num_traits::Num;
 use rand_distr::num_traits::real::Real;
 use crate::{Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
+use crate::dna_allocator::CloneReallocationMemoryBuffer;
 use crate::ens_nondominating_sorting::ens_nondominated_sorting;
 use crate::evaluator::Evaluator;
 use crate::optimizers::nsga3::*;
 use crate::optimizers::Optimizer;
 
-type SolutionId = u64;
-
 #[derive(Debug, Clone, Copy)]
-struct Candidate<S: Solution> {
-    id: SolutionId,
+struct Candidate<S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> {
     sol: S,
-    front: usize
+    front: usize,
+    phantom: PhantomData<DnaAllocatorType>
 }
 
-struct SortingBuffer<S>
-    where
-        S: Solution
+struct CandidateAllocator<S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone>
 {
-    prepared_fronts: Vec<Candidate<S>>,
+    buffer_candidates: Vec<Candidate<S, DnaAllocatorType>>,
+    phantom1: PhantomData<DnaAllocatorType>,
+    phantom2: PhantomData<S>
+}
+
+impl<S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> CandidateAllocator<S, DnaAllocatorType>
+{
+    pub fn allocate(&mut self, dna_allocator: &mut DnaAllocatorType, mut sol: S, front: usize) -> Candidate<S, DnaAllocatorType>
+    {
+        match self.buffer_candidates.pop()
+        {
+            None => {
+                Candidate {
+                    sol,
+                    front,
+                    phantom: Default::default(),
+                }
+            }
+            Some(mut dna) => {
+                std::mem::swap(&mut dna.sol,&mut sol);
+
+                dna_allocator.deallocate(sol);
+
+                dna.front = front;
+
+                dna
+            }
+        }
+    }
+
+    pub fn clone_from(&mut self, dna_allocator: &mut DnaAllocatorType, other_candidate: &Candidate<S, DnaAllocatorType>) -> Candidate<S, DnaAllocatorType>
+    {
+        let sol = CloneReallocationMemoryBuffer::clone_from_dna(dna_allocator, &other_candidate.sol);
+
+        let mut new_candidate = self.allocate(dna_allocator, sol, other_candidate.front);
+
+        new_candidate.clone_from(other_candidate);
+
+        new_candidate
+    }
+
+    pub fn deallocate(&mut self, candidate: Candidate<S, DnaAllocatorType>)
+    {
+        self.buffer_candidates.push(candidate)
+    }
+}
+
+struct SortingBuffer<S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone>
+    where
+        S: Solution<DnaAllocatorType>
+{
+    prepared_fronts: Vec<Candidate<S, DnaAllocatorType>>,
     objs: Vec<Vec<f64>>,
     points_on_first_front: Vec<Vec<f64>>,
     crowding_distance_i: Vec<f64>,
@@ -38,24 +87,23 @@ struct SortingBuffer<S>
     last_front_indicies: Vec<usize>,
     ens_fronts: Vec<Vec<usize>>,
     ens_indicies: Vec<usize>,
-    flat_fronts: Vec<Candidate<S>>,
     points: Vec<Vec<f64>>,
     point_indicies_by_front: Vec<Vec<usize>>,
     selected_fronts: Vec<bool>,
-    final_population: Vec<Candidate<S>>,
-    best_candidates: Vec<(Vec<f64>, S)>
+    final_population: Vec<Candidate<S, DnaAllocatorType>>,
+    best_candidates: Vec<(Vec<f64>, S)>,
+    flat_fronts: Vec<Candidate<S, DnaAllocatorType>>
 }
 
-pub struct AGEMOEA2Optimizer<'a, S: Solution> {
-    meta: Box<dyn Meta<'a, S> + 'a>,
-    last_id: SolutionId,
+pub struct AGEMOEA2Optimizer<'a, S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> {
+    meta: Box<dyn Meta<'a, S, DnaAllocatorType> + 'a>,
     best_solutions: Vec<(Vec<f64>, S)>,
-    sorting_buffer: SortingBuffer<S>
+    sorting_buffer: SortingBuffer<S, DnaAllocatorType>
 }
 
-impl<'a, S> AGEMOEA2Optimizer<'a, S>
+impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2Optimizer<'a, S, DnaAllocatorType>
     where
-        S: Solution,
+        S: Solution<DnaAllocatorType>,
 {
     fn name(&self) -> &str {
         "AGE-MOEA-II"
@@ -66,13 +114,12 @@ impl<'a, S> AGEMOEA2Optimizer<'a, S>
     }
 
     /// Instantiate a new optimizer with a given meta params
-    pub fn new(meta: impl Meta<'a, S> + 'a) -> Self {
+    pub fn new(meta: impl Meta<'a, S, DnaAllocatorType> + 'a) -> Self {
         let points_on_first_front: Vec<Vec<f64>> = Vec::with_capacity(meta.population_size());
         let selected_fronts: Vec<bool> = Vec::with_capacity(meta.population_size());
 
         AGEMOEA2Optimizer {
             meta: Box::new(meta),
-            last_id: 0,
             best_solutions: Vec::new(),
             sorting_buffer: SortingBuffer {
                 prepared_fronts: vec![],
@@ -93,29 +140,39 @@ impl<'a, S> AGEMOEA2Optimizer<'a, S>
         }
     }
 
-    fn next_id(&mut self) -> SolutionId {
-        self.last_id += 1;
-        self.last_id
-    }
-
     fn odds(&self, ratio: &Ratio) -> bool {
         thread_rng().gen_ratio(ratio.0, ratio.1)
     }
 
-    fn tournament(&self, p1: Candidate<S>, p2: Candidate<S>) -> Candidate<S> {
-        let mut rnd = thread_rng();
-
+    fn tournament(&self, candidate_allocator: &mut CandidateAllocator<S, DnaAllocatorType>, p1: Candidate<S, DnaAllocatorType>, p2: Candidate<S, DnaAllocatorType>) -> Candidate<S, DnaAllocatorType> {
         if p1.front < p2.front {
+            candidate_allocator.deallocate(p2);
             p1
         } else if p2.front < p1.front {
+            candidate_allocator.deallocate(p1);
             p2
         } else {
-            vec![p1, p2].remove(rnd.gen_range(0..=1))
+            let mut rnd = thread_rng();
+
+            if rnd.gen_ratio(1, 2)
+            {
+                candidate_allocator.deallocate(p2);
+                p1
+            }
+            else
+            {
+                candidate_allocator.deallocate(p1);
+                p2
+            }
         }
     }
 
     #[allow(clippy::needless_range_loop)]
-    fn sort(&mut self, initial_pop: Option<&Vec<Candidate<S>>>) -> () {
+    fn sort(&mut self,
+            candidate_allocator: &mut CandidateAllocator<S, DnaAllocatorType>,
+            dna_allocator: &mut DnaAllocatorType,
+            initial_pop: Option<&Vec<Candidate<S, DnaAllocatorType>>>) -> ()
+    {
         let pop = initial_pop.unwrap_or(&self.sorting_buffer.final_population);
 
         self.sorting_buffer.objs.clear();
@@ -135,13 +192,12 @@ impl<'a, S> AGEMOEA2Optimizer<'a, S>
         for (fidx, f) in self.sorting_buffer.ens_fronts.iter().enumerate() {
             for index in f {
                 let p = &pop[*index];
-                let id = p.id;
 
-                self.sorting_buffer.flat_fronts.push(Candidate {
-                    id,
-                    sol: p.sol.clone(),
-                    front: fidx
-                });
+                let mut new_cand = candidate_allocator.clone_from(dna_allocator, p);
+
+                new_cand.front = fidx;
+
+                self.sorting_buffer.flat_fronts.push(new_cand);
             }
         }
 
@@ -312,7 +368,7 @@ impl<'a, S> AGEMOEA2Optimizer<'a, S>
     }
 
     #[allow(clippy::borrowed_box)]
-    fn value(&self, s: &S, obj: &Box<dyn Objective<S> + 'a>) -> f64 {
+    fn value(&self, s: &S, obj: &Box<dyn Objective<S, DnaAllocatorType> + 'a>) -> f64 {
         self.meta
             .constraints()
             .iter()
@@ -851,36 +907,42 @@ fn sum_along_axis_one(source: &Vec<Vec<f64>>) -> Vec<f64>
         .collect()
 }
 
-impl<'a, S> Optimizer<S> for AGEMOEA2Optimizer<'a, S>
+impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimizer<S, DnaAllocatorType> for AGEMOEA2Optimizer<'a, S, DnaAllocatorType>
     where
-        S: Solution,
+        S: Solution<DnaAllocatorType>,
 {
     fn name(&self) -> &str {
         "AGE-MOEA-II"
     }
 
-    fn optimize(&mut self, eval: &mut Box<dyn Evaluator>, mut runtime_solutions_processor: Box<&mut dyn SolutionsRuntimeProcessor<S>>) {
+    fn optimize(
+        &mut self,
+        eval: &mut Box<dyn Evaluator>,
+        mut runtime_solutions_processor: Box<&mut dyn SolutionsRuntimeProcessor<S, DnaAllocatorType>>
+    ) {
         let mut rnd = thread_rng();
 
         let pop_size = self.meta.population_size();
         let crossover_odds = self.meta.crossover_odds();
         let mutation_odds = self.meta.mutation_odds();
 
-        let mut child_pop: Vec<Candidate<S>> = Vec::with_capacity(pop_size);
+        let mut child_pop: Vec<Candidate<S, DnaAllocatorType>> = Vec::with_capacity(pop_size);
         let mut extended_solutions_buffer = Vec::with_capacity(
             runtime_solutions_processor.extend_iteration_population_buffer_size()
         );
 
+        let mut candidate_allocator = CandidateAllocator {
+            buffer_candidates: vec![],
+            phantom1: Default::default(),
+            phantom2: Default::default(),
+        };
+
         let mut pop: Vec<_> = (0..pop_size)
             .map(|_| {
-                let id = self.next_id();
-                let sol = self.meta.random_solution();
-
-                Candidate {
-                    id,
-                    sol,
-                    front: 0
-                }
+                candidate_allocator.allocate(
+                    runtime_solutions_processor.dna_allocator(),
+                    self.meta.random_solution(),
+                    0)
             })
             .collect();
 
@@ -891,7 +953,12 @@ impl<'a, S> Optimizer<S> for AGEMOEA2Optimizer<'a, S>
         }
         runtime_solutions_processor.new_candidates(preprocess_vec);
 
-        self.sort(Some(&pop));
+
+        self.sort(
+            &mut candidate_allocator,
+            runtime_solutions_processor.dna_allocator(),
+            Some(&pop)
+        );
 
         for iter in 0.. {
             if runtime_solutions_processor.needs_early_stop()
@@ -905,15 +972,6 @@ impl<'a, S> Optimizer<S> for AGEMOEA2Optimizer<'a, S>
             for solution in self.sorting_buffer.best_candidates.iter() {
                 self.best_solutions.push(solution.clone())
             }
-
-            // self.sorting_buffer.final_population
-            //     .iter()
-            //     .filter(|c| c.front == 0)
-            //     .for_each(|&c| {
-            //         let vals: Vec<f64> = self.values(&c.sol);
-            //
-            //         self.best_solutions.push((vals, c.sol.clone()));
-            //     });
 
             runtime_solutions_processor.iter_solutions(
                 self.sorting_buffer.final_population.iter_mut()
@@ -941,28 +999,37 @@ impl<'a, S> Optimizer<S> for AGEMOEA2Optimizer<'a, S>
             }
 
             while child_pop.len() < pop_size {
-                let p1 = self.sorting_buffer.final_population.choose_mut(&mut rnd).unwrap().clone();
-                let p2 = self.sorting_buffer.final_population.choose_mut(&mut rnd).unwrap().clone();
-                let p3 = self.sorting_buffer.final_population.choose_mut(&mut rnd).unwrap().clone();
-                let p4 = self.sorting_buffer.final_population.choose_mut(&mut rnd).unwrap().clone();
+                let p1 = candidate_allocator.clone_from(
+                    runtime_solutions_processor.dna_allocator(),
+                    self.sorting_buffer.final_population.choose_mut(&mut rnd).unwrap()
+                );
+                let p2 = candidate_allocator.clone_from(
+                    runtime_solutions_processor.dna_allocator(),
+                    self.sorting_buffer.final_population.choose_mut(&mut rnd).unwrap()
+                );
+                let p3 = candidate_allocator.clone_from(
+                    runtime_solutions_processor.dna_allocator(),
+                    self.sorting_buffer.final_population.choose_mut(&mut rnd).unwrap()
+                );
+                let p4 = candidate_allocator.clone_from(
+                    runtime_solutions_processor.dna_allocator(),
+                    self.sorting_buffer.final_population.choose_mut(&mut rnd).unwrap()
+                );
 
-                let mut c1 = self.tournament(p1, p2);
-                let mut c2 = self.tournament(p3, p4);
+                let mut c1 = self.tournament(&mut candidate_allocator, p1, p2);
+                let mut c2 = self.tournament(&mut candidate_allocator, p3, p4);
 
                 if self.odds(crossover_odds) {
-                    c1.sol.crossover(&mut c2.sol);
+                    c1.sol.crossover(runtime_solutions_processor.dna_allocator(), &mut c2.sol);
                 };
 
                 if self.odds(mutation_odds) {
-                    c1.sol.mutate();
+                    c1.sol.mutate(runtime_solutions_processor.dna_allocator());
                 };
 
                 if self.odds(mutation_odds) {
-                    c2.sol.mutate();
+                    c2.sol.mutate(runtime_solutions_processor.dna_allocator());
                 };
-
-                c1.id = self.next_id();
-                c2.id = self.next_id();
 
                 child_pop.push(c1);
                 child_pop.push(c2);
@@ -975,13 +1042,9 @@ impl<'a, S> Optimizer<S> for AGEMOEA2Optimizer<'a, S>
 
             while let Some(solution) = extended_solutions_buffer.pop()
             {
-                let id = self.next_id();
-
-                child_pop.push(Candidate {
-                    id,
-                    front: 0,
-                    sol: solution
-                });
+                child_pop.push(
+                    candidate_allocator.allocate(runtime_solutions_processor.dna_allocator(), solution, 0)
+                );
             }
 
             runtime_solutions_processor.new_candidates(
@@ -996,9 +1059,10 @@ impl<'a, S> Optimizer<S> for AGEMOEA2Optimizer<'a, S>
                 self.sorting_buffer.final_population.push(candidate);
             }
 
-
-
-            self.sort(None);
+            self.sort(&mut candidate_allocator,
+                      runtime_solutions_processor.dna_allocator(),
+                      None
+            );
         }
     }
 
