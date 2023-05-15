@@ -63,9 +63,7 @@ impl<S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuf
     {
         let sol = CloneReallocationMemoryBuffer::clone_from_dna(dna_allocator, &other_candidate.sol);
 
-        let mut new_candidate = self.allocate(dna_allocator, sol, other_candidate.front);
-
-        new_candidate.front = other_candidate.front;
+        let new_candidate = self.allocate(dna_allocator, sol, other_candidate.front);
 
         new_candidate
     }
@@ -986,9 +984,17 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimize
 
             runtime_solutions_processor.iteration_num(iter);
 
-            self.best_solutions.clear();
+            if let Some((_, sol)) = self.best_solutions.pop()
+            {
+                runtime_solutions_processor.dna_allocator().deallocate(sol);
+            }
             for solution in self.sorting_buffer.best_candidates.iter() {
-                self.best_solutions.push(solution.clone())
+                self.best_solutions.push(
+                    (
+                        solution.0.clone(),
+                        runtime_solutions_processor.dna_allocator().clone_from_dna(&solution.1)
+                    )
+                )
             }
 
             runtime_solutions_processor.iter_solutions(
