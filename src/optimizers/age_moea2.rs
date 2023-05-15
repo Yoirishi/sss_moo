@@ -188,7 +188,10 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             &mut self.sorting_buffer.ens_fronts
         );
 
-        self.sorting_buffer.flat_fronts.clear();
+        while let Some(cand) = self.sorting_buffer.flat_fronts.pop()
+        {
+            candidate_allocator.deallocate(cand);
+        }
         for (fidx, f) in self.sorting_buffer.ens_fronts.iter().enumerate() {
             for index in f {
                 let p = &pop[*index];
@@ -219,7 +222,10 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             }
         }
 
-        self.sorting_buffer.best_candidates.clear();
+        while let Some(best_sol) = self.sorting_buffer.best_candidates.pop()
+        {
+            dna_allocator.deallocate(best_sol.1);
+        }
         for index in clear_fronts[0].iter()
         {
             prepared_fronts[*index].front = 0;
@@ -355,9 +361,10 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             self.sorting_buffer.selected_fronts[self.sorting_buffer.last_front_indicies[rank[i]]] = true
         }
 
-
-        self.sorting_buffer.final_population.clear();
-
+        while let Some(cand) = self.sorting_buffer.final_population.pop()
+        {
+            candidate_allocator.deallocate(cand);
+        }
         for (child_index, is_survive) in self.sorting_buffer.selected_fronts.iter().enumerate()
         {
             if *is_survive
