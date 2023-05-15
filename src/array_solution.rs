@@ -2,6 +2,7 @@ use std::fmt::{Debug, Formatter};
 use dyn_clone::DynClone;
 use rand::{Rng, thread_rng};
 use crate::{Constraint, Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
+use crate::dna_allocator::SimpleCloneAllocator;
 
 pub trait ArraySolutionEvaluator: DynClone
 {
@@ -22,7 +23,6 @@ pub struct ArraySolution
     array_evaluator: Box<dyn ArraySolutionEvaluator>
 }
 
-
 impl ArraySolution
 {
     fn calc_objectives(&mut self)
@@ -37,9 +37,9 @@ impl Debug for ArraySolution {
     }
 }
 
-impl Solution for ArraySolution
+impl Solution<SimpleCloneAllocator<ArraySolution>> for ArraySolution
 {
-    fn crossover(&mut self, other: &mut Self) {
+    fn crossover(&mut self, dna_allocator: &mut SimpleCloneAllocator<ArraySolution>, other: &mut Self) {
         let mut new_solution1 = ArraySolution {
             f: other.f.clone(),
             x: other.x.clone(),
@@ -74,7 +74,7 @@ impl Solution for ArraySolution
         std::mem::swap(other, &mut new_solution2);
     }
 
-    fn mutate(&mut self) {
+    fn mutate(&mut self, dna_allocator: &mut SimpleCloneAllocator<ArraySolution>) {
         let mut rng = thread_rng();
 
         let x_len = self.x.len();
@@ -93,7 +93,7 @@ pub struct ArrayFObjective
     index_f: usize
 }
 
-impl<'a> Objective<ArraySolution> for ArrayFObjective {
+impl<'a> Objective<ArraySolution, SimpleCloneAllocator<ArraySolution>> for ArrayFObjective {
     fn value(&self, candidate: &ArraySolution) -> f64 {
         candidate.f[self.index_f]
     }
@@ -108,14 +108,14 @@ pub struct ArrayOptimizerParams {
     crossover_odds: Ratio,
     mutation_odds: Ratio,
     array_evaluator: Box<dyn ArraySolutionEvaluator>,
-    objectives: Vec<Box<dyn Objective<ArraySolution>>>,
-    constraints: Vec<Box<dyn Constraint<ArraySolution>>>,
+    objectives: Vec<Box<dyn Objective<ArraySolution, SimpleCloneAllocator<ArraySolution>>>>,
+    constraints: Vec<Box<dyn Constraint<ArraySolution, SimpleCloneAllocator<ArraySolution>>>>,
 }
 
 impl ArrayOptimizerParams {
     pub fn new(population_size: usize, crossover_odds: Ratio, mutation_odds: Ratio, array_evaluator: Box<dyn ArraySolutionEvaluator>) -> Self {
 
-        let mut objectives: Vec<Box<dyn Objective<ArraySolution>>> = Vec::new();
+        let mut objectives: Vec<Box<dyn Objective<ArraySolution, SimpleCloneAllocator<ArraySolution>>>> = Vec::new();
 
         for i in 0..array_evaluator.objectives_len()
         {
@@ -135,7 +135,7 @@ impl ArrayOptimizerParams {
     }
 }
 
-impl<'a> Meta<'a, ArraySolution> for ArrayOptimizerParams {
+impl<'a> Meta<'a, ArraySolution, SimpleCloneAllocator<ArraySolution>> for ArrayOptimizerParams {
     fn population_size(&self) -> usize {
         self.population_size
     }
@@ -164,18 +164,19 @@ impl<'a> Meta<'a, ArraySolution> for ArrayOptimizerParams {
         }
     }
 
-    fn objectives(&self) -> &Vec<Box<dyn Objective<ArraySolution>>> {
+    fn objectives(&self) -> &Vec<Box<dyn Objective<ArraySolution, SimpleCloneAllocator<ArraySolution>>>> {
         &self.objectives
     }
 
-    fn constraints(&self) -> &Vec<Box<dyn Constraint<ArraySolution>>> {
+    fn constraints(&self) -> &Vec<Box<dyn Constraint<ArraySolution, SimpleCloneAllocator<ArraySolution>>>> {
         &self.constraints
     }
 }
 
 pub struct SolutionsRuntimeArrayProcessor
 {
-    current_iteration_num: usize
+    current_iteration_num: usize,
+    simple_allocator: SimpleCloneAllocator<ArraySolution>
 }
 
 impl SolutionsRuntimeArrayProcessor
@@ -183,13 +184,14 @@ impl SolutionsRuntimeArrayProcessor
     pub fn new() -> Self
     {
         SolutionsRuntimeArrayProcessor {
-            current_iteration_num: 0
+            current_iteration_num: 0,
+            simple_allocator: SimpleCloneAllocator { phantom: Default::default() },
         }
     }
 }
 
 
-impl SolutionsRuntimeProcessor<ArraySolution> for SolutionsRuntimeArrayProcessor
+impl SolutionsRuntimeProcessor<ArraySolution, SimpleCloneAllocator<ArraySolution>> for SolutionsRuntimeArrayProcessor
 {
     fn new_candidates(&mut self, candidates: Vec<&mut ArraySolution>) {
         for array_solution in candidates
@@ -208,5 +210,9 @@ impl SolutionsRuntimeProcessor<ArraySolution> for SolutionsRuntimeArrayProcessor
 
     fn needs_early_stop(&mut self) -> bool {
         false
+    }
+
+    fn dna_allocator(&mut self) -> &mut SimpleCloneAllocator<ArraySolution> {
+        &mut self.simple_allocator
     }
 }
