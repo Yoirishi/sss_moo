@@ -158,7 +158,8 @@ fn test_survival_score_fn()
 
 
     let mut normalization_vector = vec![];
-    let (p, normalized_front_points) = survival_score(&source_front, &source_ideal_point, &mut normalization_vector);
+    let mut buffer = vec![];
+    let (p, normalized_front_points) = survival_score(&source_front, &source_ideal_point, &mut buffer, &mut normalization_vector);
 
 
     normalized_front_points.iter().zip(&expected_crowd_distance_for_best_front).for_each(|(&a, &b)| println!("{}", (a - b)));
@@ -267,7 +268,7 @@ fn sort_debug()
     }
 
     let mut normalization_vector = vec![];
-    let (p, normalized_front_points) = survival_score(&points_on_first_front, &ideal_point, &mut normalization_vector);
+    let (p, normalized_front_points) = survival_score(&points_on_first_front, &ideal_point, &mut vec![], &mut normalization_vector);
 
 
     for (&point_index, &crowding_distance_value) in clear_fronts[0].iter().zip(&normalized_front_points)
