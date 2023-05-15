@@ -210,7 +210,10 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
         let points = &self.sorting_buffer.points;
 
         let prepared_fronts = &mut self.sorting_buffer.prepared_fronts;
-        prepared_fronts.clear();
+        while let Some(cand) = prepared_fronts.pop()
+        {
+            candidate_allocator.deallocate(cand);
+        }
         for front in &self.sorting_buffer.point_indicies_by_front
         {
             for point_index in front
