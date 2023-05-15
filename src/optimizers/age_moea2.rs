@@ -27,9 +27,13 @@ struct Candidate<S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocat
     phantom: PhantomData<DnaAllocatorType>
 }
 
+struct CandidateData {
+    front: usize
+}
+
 struct CandidateAllocator<S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone>
 {
-    buffer_candidates: Vec<Candidate<S, DnaAllocatorType>>,
+    buffer_candidates: Vec<CandidateData>,
     phantom1: PhantomData<DnaAllocatorType>,
     phantom2: PhantomData<S>
 }
@@ -47,14 +51,12 @@ impl<S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuf
                     phantom: Default::default(),
                 }
             }
-            Some(mut dna) => {
-                std::mem::swap(&mut dna.sol,&mut sol);
-
-                dna_allocator.deallocate(sol);
-
-                dna.front = front;
-
-                dna
+            Some(candidate_data) => {
+                Candidate {
+                    front: candidate_data.front,
+                    sol,
+                    phantom: Default::default(),
+                }
             }
         }
     }
@@ -68,9 +70,13 @@ impl<S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuf
         new_candidate
     }
 
-    pub fn deallocate(&mut self, candidate: Candidate<S, DnaAllocatorType>)
+    pub fn deallocate(&mut self, dna_allocator: &mut DnaAllocatorType, candidate: Candidate<S, DnaAllocatorType>)
     {
-        self.buffer_candidates.push(candidate)
+        dna_allocator.deallocate(candidate.sol);
+
+        self.buffer_candidates.push(CandidateData {
+            front: candidate.front,
+        })
     }
 }
 
@@ -143,22 +149,22 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
         thread_rng.gen_ratio(ratio.0, ratio.1)
     }
 
-    fn tournament(&self, thread_rng: &mut ThreadRng, candidate_allocator: &mut CandidateAllocator<S, DnaAllocatorType>, p1: Candidate<S, DnaAllocatorType>, p2: Candidate<S, DnaAllocatorType>) -> Candidate<S, DnaAllocatorType> {
+    fn tournament(&self, thread_rng: &mut ThreadRng, candidate_allocator: &mut CandidateAllocator<S, DnaAllocatorType>, dna_allocator: &mut DnaAllocatorType, p1: Candidate<S, DnaAllocatorType>, p2: Candidate<S, DnaAllocatorType>) -> Candidate<S, DnaAllocatorType> {
         if p1.front < p2.front {
-            candidate_allocator.deallocate(p2);
+            candidate_allocator.deallocate(dna_allocator, p2);
             p1
         } else if p2.front < p1.front {
-            candidate_allocator.deallocate(p1);
+            candidate_allocator.deallocate(dna_allocator, p1);
             p2
         } else {
             if thread_rng.gen_ratio(1, 2)
             {
-                candidate_allocator.deallocate(p2);
+                candidate_allocator.deallocate(dna_allocator, p2);
                 p1
             }
             else
             {
-                candidate_allocator.deallocate(p1);
+                candidate_allocator.deallocate(dna_allocator, p1);
                 p2
             }
         }
@@ -187,7 +193,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
 
         while let Some(cand) = self.sorting_buffer.flat_fronts.pop()
         {
-            candidate_allocator.deallocate(cand);
+            candidate_allocator.deallocate(dna_allocator, cand);
         }
         for (fidx, f) in self.sorting_buffer.ens_fronts.iter().enumerate() {
             for index in f {
@@ -212,7 +218,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
         let prepared_fronts = &mut self.sorting_buffer.prepared_fronts;
         while let Some(cand) = prepared_fronts.pop()
         {
-            candidate_allocator.deallocate(cand);
+            candidate_allocator.deallocate(dna_allocator, cand);
         }
         for front in &self.sorting_buffer.point_indicies_by_front
         {
@@ -370,7 +376,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
 
         while let Some(cand) = self.sorting_buffer.final_population.pop()
         {
-            candidate_allocator.deallocate(cand);
+            candidate_allocator.deallocate(dna_allocator, cand);
         }
         for (child_index, is_survive) in self.sorting_buffer.selected_fronts.iter().enumerate()
         {
@@ -1043,8 +1049,22 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimize
                     self.sorting_buffer.final_population.choose_mut(&mut rnd).unwrap()
                 );
 
-                let mut c1 = self.tournament(&mut rnd, &mut candidate_allocator, p1, p2);
-                let mut c2 = self.tournament(&mut rnd, &mut candidate_allocator, p3, p4);
+                let mut c1 =
+                    self.tournament(
+                        &mut rnd,
+                        &mut candidate_allocator,
+                        runtime_solutions_processor.dna_allocator(),
+                        p1,
+                        p2
+                    );
+                let mut c2 =
+                    self.tournament(
+                        &mut rnd,
+                        &mut candidate_allocator,
+                        runtime_solutions_processor.dna_allocator(),
+                        p3,
+                        p4
+                    );
 
                 if self.odds(&mut rnd, crossover_odds) {
                     c1.sol.crossover(runtime_solutions_processor.dna_allocator(), &mut c2.sol);
