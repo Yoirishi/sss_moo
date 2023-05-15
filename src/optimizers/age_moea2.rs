@@ -27,13 +27,8 @@ struct Candidate<S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocat
     phantom: PhantomData<DnaAllocatorType>
 }
 
-struct CandidateData {
-    front: usize
-}
-
 struct CandidateAllocator<S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone>
 {
-    buffer_candidates: Vec<CandidateData>,
     phantom1: PhantomData<DnaAllocatorType>,
     phantom2: PhantomData<S>
 }
@@ -42,22 +37,10 @@ impl<S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuf
 {
     pub fn allocate(&mut self, dna_allocator: &mut DnaAllocatorType, mut sol: S, front: usize) -> Candidate<S, DnaAllocatorType>
     {
-        match self.buffer_candidates.pop()
-        {
-            None => {
-                Candidate {
-                    sol,
-                    front,
-                    phantom: Default::default(),
-                }
-            }
-            Some(candidate_data) => {
-                Candidate {
-                    front: candidate_data.front,
-                    sol,
-                    phantom: Default::default(),
-                }
-            }
+        Candidate {
+            front,
+            sol,
+            phantom: Default::default(),
         }
     }
 
@@ -73,10 +56,6 @@ impl<S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuf
     pub fn deallocate(&mut self, dna_allocator: &mut DnaAllocatorType, candidate: Candidate<S, DnaAllocatorType>)
     {
         dna_allocator.deallocate(candidate.sol);
-
-        self.buffer_candidates.push(CandidateData {
-            front: candidate.front,
-        })
     }
 }
 
@@ -957,7 +936,6 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimize
         );
 
         let mut candidate_allocator = CandidateAllocator {
-            buffer_candidates: vec![],
             phantom1: Default::default(),
             phantom2: Default::default(),
         };
