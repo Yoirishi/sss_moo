@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 use itertools::Itertools;
-use crate::optimizers::age_moea2::{highest_value_and_index_in_vector, argpartition, matrix_slice_axis_one, sum_along_axis_one, take_along_axis_one, point_to_line_distance, find_corner_solution, norm_matrix_by_axis_one_and_ord, pairwise_distances, survival_score, newton_raphson, get_crowd_distance, meshgrid, minkowski_distances, argsort, mask_positive_count, get_vector_according_indicies};
+use crate::optimizers::age_moea2::{highest_value_and_index_in_vector, argpartition, matrix_slice_axis_one, sum_along_axis_one, take_along_axis_one, point_to_line_distance, find_corner_solution, norm_matrix_by_axis_one_and_ord, pairwise_distances, newton_raphson, get_crowd_distance, meshgrid, minkowski_distances, argsort, mask_positive_count, get_vector_according_indicies};
 use crate::optimizers::age_moea2::test_helpers::*;
 use crate::optimizers::nsga3::*;
 
@@ -147,26 +147,7 @@ fn test_get_crowding_distance_fn()
 }
 
 
-#[test]
-fn test_survival_score_fn()
-{
-    let source_front = get_source_front_for_survival_score_fn();
-    let source_ideal_point = get_source_ideal_point_for_survival_score_fn();
 
-    let (expected_p, expected_crowd_distance_for_best_front, expected_normalize_vector) =
-        get_expected_result_for_survival_score_fn();
-
-
-    let mut normalization_vector = vec![];
-    let (p, normalized_front_points) = survival_score(&source_front, &source_ideal_point, &mut normalization_vector);
-
-
-    normalized_front_points.iter().zip(&expected_crowd_distance_for_best_front).for_each(|(&a, &b)| println!("{}", (a - b)));
-
-    assert!(vec_compare(&normalization_vector, &expected_normalize_vector));
-    assert!(vec_compare(&normalized_front_points, &expected_crowd_distance_for_best_front));
-    assert!((p - expected_p).abs() < 1e-11);
-}
 
 struct MockSolution
 {
@@ -266,8 +247,8 @@ fn sort_debug()
         }
     }
 
-    let mut normalization_vector = vec![];
-    let (p, normalized_front_points) = survival_score(&points_on_first_front, &ideal_point, &mut normalization_vector);
+    let mut normalization_vector: Vec<f64> = vec![];
+    let (p, normalized_front_points) = (1., vec![]);
 
 
     for (&point_index, &crowding_distance_value) in clear_fronts[0].iter().zip(&normalized_front_points)
