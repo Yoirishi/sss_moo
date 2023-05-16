@@ -72,7 +72,8 @@ fn test_point_to_line_distance()
 
     let expected_result = get_result_to_point_to_line_distance_fn();
 
-    let result = point_to_line_distance(&source_points, &eyed_matrix_row);
+    let mut result = vec![];
+    point_to_line_distance(&source_points, &eyed_matrix_row, &mut result);
     assert_eq!(expected_result, result)
 }
 
@@ -82,9 +83,18 @@ fn test_find_corner_solution()
     let source = get_points_to_find_corner_solution_fn();
     let expected_result = get_result_for_find_corner_solution_fn();
 
-    let result = find_corner_solution(&source);
+    let mut indicies_buffer = vec![];
+    let mut selected_buffer = vec![];
+    let mut distance_buffer = vec![];
 
-    assert_eq!(expected_result, result)
+    find_corner_solution(
+        &source,
+        &mut indicies_buffer,
+        &mut selected_buffer,
+        &mut distance_buffer,
+    );
+
+    assert_eq!(expected_result, indicies_buffer)
 }
 
 #[test]

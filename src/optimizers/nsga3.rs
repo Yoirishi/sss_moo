@@ -984,7 +984,8 @@ fn associate_to_niches<'a>(points: &'a Vec<Vec<f64>>, niches: &'a Vec<Vec<f64>>,
     let distance_matrix = DistMatrix::new(normalized, &niches);
     let niche_of_individual = min_distances_indicies(&distance_matrix);
     let points_count = points.len();
-    let arranged_by_points_count = np_arrange_by_zero_to_target(points_count);
+    let mut arranged_by_points_count = vec![];
+    np_arrange_by_zero_to_target(points_count, &mut arranged_by_points_count);
     let dist_to_niches = get_values_from_dist_matrix_by_row_indicies_and_column_indicies(
         &distance_matrix,
         &arranged_by_points_count,
@@ -1301,14 +1302,12 @@ pub fn get_difference_between_matrix_and_vector<T:Sub<Output = T> + Copy>(matrix
     result
 }
 
-pub fn np_arrange_by_zero_to_target(target: usize) -> Vec<usize>
+pub fn np_arrange_by_zero_to_target(target: usize, destination: &mut Vec<usize>) -> ()
 {
-    let mut result = Vec::with_capacity(target);
     for i in 0..target
     {
-        result.push(i)
+        destination.push(i)
     }
-    result
 }
 
 fn get_values_from_matrix_by_row_indicies_and_column_indicies<T:Copy>(matrix: &Vec<Vec<T>>, row_indicies: &Vec<usize>, column_indicies: &Vec<usize>) -> Vec<T>
