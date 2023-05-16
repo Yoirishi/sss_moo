@@ -138,7 +138,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimize
                 break;
             }
 
-            if eval.can_terminate(iter, parent_pop.iter().map(|c| self.values(&c.sol)).collect())
+            if eval.can_terminate(iter, &parent_pop.iter().map(|c| self.values(&c.sol)).collect())
             {
                 break;
             }
