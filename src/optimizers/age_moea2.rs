@@ -171,7 +171,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             &mut self.sorting_buffer.ens_fronts
         );
 
-        while let Some(cand) = self.sorting_buffer.flat_fronts.pop()
+        for cand in self.sorting_buffer.flat_fronts.drain(..)
         {
             candidate_allocator.deallocate(dna_allocator, cand);
         }
@@ -196,7 +196,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
         let points = &self.sorting_buffer.points;
 
         let prepared_fronts = &mut self.sorting_buffer.prepared_fronts;
-        while let Some(cand) = prepared_fronts.pop()
+        for cand in prepared_fronts.drain(..)
         {
             candidate_allocator.deallocate(dna_allocator, cand);
         }
@@ -213,7 +213,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             }
         }
 
-        while let Some(best_sol) = self.sorting_buffer.best_candidates.pop()
+        for best_sol in self.sorting_buffer.best_candidates.drain(..)
         {
             dna_allocator.deallocate(best_sol.1);
         }
@@ -354,7 +354,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             self.sorting_buffer.selected_fronts[self.sorting_buffer.last_front_indicies[rank[i]]] = true
         }
 
-        while let Some(cand) = self.sorting_buffer.final_population.pop()
+        for cand in self.sorting_buffer.final_population.drain(..)
         {
             candidate_allocator.deallocate(dna_allocator, cand);
         }
@@ -941,7 +941,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimize
             phantom2: Default::default(),
         };
 
-        while let Some(candidate) = self.sorting_buffer.final_population.pop()
+        for candidate in self.sorting_buffer.final_population.drain(..)
         {
             candidate_allocator.deallocate(runtime_solutions_processor.dna_allocator(), candidate);
         }
@@ -973,7 +973,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimize
 
             runtime_solutions_processor.iteration_num(iter);
 
-            while let Some((_, sol)) = self.best_solutions.pop()
+            for (_, sol) in self.best_solutions.drain(..)
             {
                 runtime_solutions_processor.dna_allocator().deallocate(sol);
             }
@@ -1068,7 +1068,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimize
                 .collect(),
                 &mut extended_solutions_buffer);
 
-            while let Some(solution) = extended_solutions_buffer.pop()
+            for solution in extended_solutions_buffer.drain(..)
             {
                 child_pop.push(
                     candidate_allocator.allocate(runtime_solutions_processor.dna_allocator(), solution, 0)
@@ -1082,7 +1082,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimize
                 .collect()
             );
 
-            while let Some(candidate) = child_pop.pop()
+            for candidate in child_pop.drain(..)
             {
                 self.sorting_buffer.final_population.push(candidate);
             }
