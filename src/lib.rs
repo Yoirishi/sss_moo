@@ -7,6 +7,7 @@ mod problem;
 #[cfg(test)]
 mod tests;
 pub mod dna_allocator;
+mod buffer_allocator;
 
 use std::fmt::Debug;
 use crate::dna_allocator::CloneReallocationMemoryBuffer;

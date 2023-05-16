@@ -1,6 +1,5 @@
 mod tests;
 mod test_helpers;
-mod vec_allocator;
 
 use std::cmp::Ordering;
 use rand::seq::SliceRandom;
