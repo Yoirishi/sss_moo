@@ -90,21 +90,30 @@ struct SortingBuffer<S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clo
     front_curvative: f64,
     surv_scores_crowding_distance: Vec<f64>,
     surv_scores_pre_normalized: Vec<Vec<f64>>,
+    normalized_solution: Vec<f64>,
+    pairwise_distance: Vec<Vec<f64>>,
+    projected_front: Vec<Vec<f64>>,
 }
 
 struct OptimizersAllocators
 {
-    point_allocator: BufferAllocator<Vec<f64>, VecAllocator, VecInitializer>
+    point_allocator: BufferAllocator<Vec<f64>, VecAllocator, VecInitializer>,
+    distances_allocator: BufferAllocator<Vec<f64>, VecAllocator, VecInitializer>
 }
 
 impl OptimizersAllocators
 {
     fn new(
-        count_of_objectives: usize
+        count_of_objectives: usize,
+        population_size: usize
     ) -> Self {
         OptimizersAllocators {
             point_allocator: BufferAllocator::new(
                 VecAllocator::new(count_of_objectives),
+                VecInitializer{}
+            ),
+            distances_allocator: BufferAllocator::new(
+                VecAllocator::new(population_size * 2),
                 VecInitializer{}
             )
         }
@@ -164,9 +173,13 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                 front_curvative: 1f64,
                 surv_scores_crowding_distance: vec![],
                 surv_scores_pre_normalized: vec![],
+                normalized_solution: vec![],
+                projected_front: vec![],
+                pairwise_distance: vec![],
             },
             allocators: OptimizersAllocators::new(
-                count_of_objectives
+                count_of_objectives,
+                population_size
             )
         }
     }
@@ -460,7 +473,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                 self.allocators.point_allocator.deallocate(point)
             }
 
-            self.compute_prenormalized_points_for_survival_scores();
+            self.compute_pre_normalized_points_for_survival_scores();
 
             let extreme_point_indicies = find_corner_solution(&self.sorting_buffer.surv_scores_pre_normalized);
 
@@ -478,14 +491,22 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                 selected[*index] = true;
             }
 
-            let p = newton_raphson(&self.sorting_buffer.normalized_front_i, &extreme_point_indicies);
+            self.sorting_buffer.front_curvative = newton_raphson(&self.sorting_buffer.normalized_front_i, &extreme_point_indicies);
 
-            let normalized_solution = norm_matrix_by_axis_one_and_ord(&self.sorting_buffer.normalized_front_i, p);
+            self.sorting_buffer.normalized_solution.clear();
+            self.eval_normalized_solution();
 
-            let pairwise_distances = compute_pairwise_distances(&self.sorting_buffer.normalized_front_i, p);
 
-            let distances = pairwise_distances.iter()
-                .zip(normalized_solution)
+            for distance in self.sorting_buffer.pairwise_distance.drain(..)
+            {
+                self.allocators.distances_allocator.deallocate(distance)
+            }
+            self.compute_pairwise_distances();
+
+            // let pairwise_distances = compute_pairwise_distances(&self.sorting_buffer.normalized_front_i, self.sorting_buffer.front_curvative);
+
+            let distances = self.sorting_buffer.pairwise_distance.iter()
+                .zip(&self.sorting_buffer.normalized_solution)
                 .map(|(enumerator, denominator)| enumerator.iter()
                     .map(|elem| *elem / denominator)
                     .collect::<Vec<f64>>())
@@ -506,7 +527,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
         }));
     }
 
-    fn compute_prenormalized_points_for_survival_scores(&mut self) -> ()
+    fn compute_pre_normalized_points_for_survival_scores(&mut self) -> ()
     {
         for row in &self.sorting_buffer.points_on_first_front
         {
@@ -514,6 +535,94 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             new_row.extend(row.iter().zip(&self.sorting_buffer.ideal_point).map(|(a, b)|*a - *b));
             self.sorting_buffer.surv_scores_pre_normalized.push(new_row)
         };
+    }
+
+    fn eval_normalized_solution(&mut self) -> () {
+        for row in &self.sorting_buffer.normalized_front_i {
+            let mut row_sum = 0.0;
+            for &value in row {
+                let abs_value = value.abs();
+                row_sum += abs_value.powf(self.sorting_buffer.front_curvative);
+            }
+            self.sorting_buffer.normalized_solution.push(row_sum.powf(self.sorting_buffer.front_curvative.recip()));
+        }
+    }
+
+    fn compute_pairwise_distances(&mut self) -> () {
+        let m = self.sorting_buffer.normalized_front_i.len();
+
+        for dist in self.sorting_buffer.projected_front.drain(..)
+        {
+            self.allocators.distances_allocator.deallocate(dist)
+        }
+        for _ in 0..m
+        {
+            self.sorting_buffer.projected_front.push(self.allocators.distances_allocator.allocate())
+        }
+
+        for index in 0..m {
+            project_on_manifold(
+                &self.sorting_buffer.normalized_front_i[index],
+                self.sorting_buffer.front_curvative,
+                &mut self.sorting_buffer.projected_front[index]
+            );
+        }
+
+        self.sorting_buffer.pairwise_distance.extend((0..m).map(|_| {
+            let mut new_dist = self.allocators.distances_allocator.allocate();
+            new_dist.extend((0..m).map(|_| 0.));
+            new_dist
+        }));
+
+        // let mut distances = vec![vec![0.0; m]; m];
+
+        if 0.95 < self.sorting_buffer.front_curvative && self.sorting_buffer.front_curvative < 1.05 {
+            for row in 0..(m - 1) {
+                for column in (row + 1)..m {
+                    self.sorting_buffer.pairwise_distance[row][column] = (self.sorting_buffer.projected_front[row]
+                        .iter()
+                        .zip(self.sorting_buffer.projected_front[column].iter())
+                        .map(|(a, b)| (a - b).abs().powi(2))
+                        .sum::<f64>())
+                        .sqrt();
+                }
+            }
+        } else {
+            for row in 0..(m - 1) {
+                for column in (row + 1)..m {
+                    let mid_point: Vec<f64> = self.sorting_buffer.projected_front[row]
+                        .iter()
+                        .zip(self.sorting_buffer.projected_front[column].iter())
+                        .map(|(a, b)| a * 0.5 + b * 0.5)
+                        .collect();
+
+
+                    let mut projection = self.allocators.distances_allocator.allocate();
+                    project_on_manifold(&mid_point, self.sorting_buffer.front_curvative, &mut projection);
+
+                    self.sorting_buffer.pairwise_distance[row][column] = (self.sorting_buffer.projected_front[row]
+                        .iter()
+                        .zip(projection.iter())
+                        .map(|(a, b)| (a - b).abs().powi(2))
+                        .sum::<f64>())
+                        .sqrt()
+                        + (self.sorting_buffer.projected_front[column]
+                        .iter()
+                        .zip(projection.iter())
+                        .map(|(a, b)| (a - b).abs().powi(2))
+                        .sum::<f64>())
+                        .sqrt();
+
+                    self.allocators.distances_allocator.deallocate(projection);
+                }
+            }
+        }
+
+        for row in 0..m {
+            for column in 0..m {
+                self.sorting_buffer.pairwise_distance[column][row] = self.sorting_buffer.pairwise_distance[row][column];
+            }
+        }
     }
 
     #[allow(clippy::borrowed_box)]
@@ -670,76 +779,9 @@ fn get_crowd_distance(front_size: usize, selected: &mut Vec<bool>, distances: &V
     crowd_dist
 }
 
-fn compute_pairwise_distances(front: &Vec<Vec<f64>>, p: f64) -> Vec<Vec<f64>> {
-    let m = front.len();
-    let mut projected_front = front.clone();
 
-    for index in 0..m {
-        projected_front[index] = project_on_manifold(&front[index], p);
-    }
 
-    let mut distances = vec![vec![0.0; m]; m];
 
-    if 0.95 < p && p < 1.05 {
-        for row in 0..(m - 1) {
-            for column in (row + 1)..m {
-                distances[row][column] = (projected_front[row]
-                    .iter()
-                    .zip(projected_front[column].iter())
-                    .map(|(a, b)| (a - b).abs().powi(2))
-                    .sum::<f64>())
-                    .sqrt();
-            }
-        }
-    } else {
-        for row in 0..(m - 1) {
-            for column in (row + 1)..m {
-                let mid_point: Vec<f64> = projected_front[row]
-                    .iter()
-                    .zip(projected_front[column].iter())
-                    .map(|(a, b)| a * 0.5 + b * 0.5)
-                    .collect();
-                let mid_point = project_on_manifold(&mid_point, p);
-
-                distances[row][column] = (projected_front[row]
-                    .iter()
-                    .zip(mid_point.iter())
-                    .map(|(a, b)| (a - b).abs().powi(2))
-                    .sum::<f64>())
-                    .sqrt()
-                    + (projected_front[column]
-                    .iter()
-                    .zip(mid_point.iter())
-                    .map(|(a, b)| (a - b).abs().powi(2))
-                    .sum::<f64>())
-                    .sqrt();
-            }
-        }
-    }
-
-    for row in 0..m {
-        for column in 0..m {
-            distances[column][row] = distances[row][column];
-        }
-    }
-
-    distances
-}
-
-fn norm_matrix_by_axis_one_and_ord(matrix: &Vec<Vec<f64>>, ord: f64) -> Vec<f64> {
-    let mut result = Vec::with_capacity(matrix.len());
-
-    for row in matrix {
-        let mut row_sum = 0.0;
-        for &value in row {
-            let abs_value = value.abs();
-            row_sum += abs_value.powf(ord);
-        }
-        result.push(row_sum.powf(ord.recip()));
-    }
-
-    result
-}
 
 fn eval_normalization_vec(points_on_front: &Vec<Vec<f64>>, extreme_point_indicies: &Vec<usize>, destination: &mut Vec<f64>) -> ()
 {
@@ -888,14 +930,15 @@ fn highest_value_and_index_in_vector(data: &[f64]) -> (f64, usize) {
 }
 
 
-fn project_on_manifold(point: &Vec<f64>, p: f64) -> Vec<f64> {
+fn project_on_manifold(point: &Vec<f64>, p: f64, destination: &mut Vec<f64>) -> () {
     let dist: f64 = point
         .iter()
         .filter(|&&x| x > 0.0)
         .map(|&x| x.powf(p))
         .sum::<f64>()
         .powf(1.0 / p);
-    point.iter().map(|&x| x / dist).collect()
+
+    destination.extend(point.iter().map(|&x| x / dist));
 }
 
 fn get_vector_according_indicies<T: Clone>(source: &Vec<T>, indicies: &Vec<usize>) -> Vec<T>
