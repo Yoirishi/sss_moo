@@ -4,17 +4,27 @@ pub trait Allocator<T>
     fn alloc(&mut self) -> T;
 }
 
-pub struct BufferAllocator<T: Clone, AllocatorT: Allocator<T>>
+pub trait Initializer<T>
 {
+    fn init(&mut self, obj: &mut T) -> ();
+}
+
+pub struct BufferAllocator<T: Clone, AllocatorT: Allocator<T>, InitializerT: Initializer<T>>
+{
+    initializer: InitializerT,
     allocator: AllocatorT,
     buf: Vec<T>
 }
 
-impl<T: Clone, AllocatorT: Allocator<T>> BufferAllocator<T, AllocatorT>
+impl<T: Clone, 
+    AllocatorT: Allocator<T>, 
+    InitializerT: Initializer<T>> BufferAllocator<T, 
+    AllocatorT, InitializerT>
 {
-    pub fn new(allocator: AllocatorT) -> Self
+    pub fn new(allocator: AllocatorT, initializer: InitializerT) -> Self
     {
         BufferAllocator {
+            initializer,
             allocator,
             buf: vec![]
         }
@@ -27,7 +37,8 @@ impl<T: Clone, AllocatorT: Allocator<T>> BufferAllocator<T, AllocatorT>
             None => {
                 self.allocator.alloc()
             }
-            Some(vec) => {
+            Some(mut vec) => {
+                self.initializer.init(&mut vec);
                 vec
             }
         }

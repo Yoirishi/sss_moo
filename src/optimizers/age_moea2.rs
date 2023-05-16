@@ -1,5 +1,7 @@
 mod tests;
 mod test_helpers;
+mod vec_allocator;
+mod vec_initializer;
 
 use std::cmp::Ordering;
 use rand::seq::SliceRandom;
@@ -14,9 +16,12 @@ use rand::rngs::ThreadRng;
 use rand_distr::num_traits::Num;
 use rand_distr::num_traits::real::Real;
 use crate::{Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
+use crate::buffer_allocator::BufferAllocator;
 use crate::dna_allocator::CloneReallocationMemoryBuffer;
 use crate::ens_nondominating_sorting::ens_nondominated_sorting;
 use crate::evaluator::Evaluator;
+use crate::optimizers::age_moea2::vec_allocator::VecAllocator;
+use crate::optimizers::age_moea2::vec_initializer::VecInitializer;
 use crate::optimizers::nsga3::*;
 use crate::optimizers::Optimizer;
 
@@ -76,13 +81,37 @@ struct SortingBuffer<S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clo
     selected_fronts: Vec<bool>,
     final_population: Vec<Candidate<S, DnaAllocatorType>>,
     best_candidates: Vec<(Vec<f64>, S)>,
-    flat_fronts: Vec<Candidate<S, DnaAllocatorType>>
+    flat_fronts: Vec<Candidate<S, DnaAllocatorType>>,
+    ideal_point: Vec<f64>,
+    normalization_vector: Vec<f64>,
+    points_on_i_front: Vec<Vec<f64>>,
+    normalized_front_i: Vec<Vec<f64>>
+}
+
+struct OptimizersAllocators
+{
+    point_allocator: BufferAllocator<Vec<f64>, VecAllocator, VecInitializer>
+}
+
+impl OptimizersAllocators
+{
+    fn new(
+        count_of_objectives: usize
+    ) -> Self {
+        OptimizersAllocators {
+            point_allocator: BufferAllocator::new(
+                VecAllocator::new(count_of_objectives),
+                VecInitializer{}
+            )
+        }
+    }
 }
 
 pub struct AGEMOEA2Optimizer<'a, S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> {
     meta: Box<dyn Meta<'a, S, DnaAllocatorType> + 'a>,
     best_solutions: Vec<(Vec<f64>, S)>,
-    sorting_buffer: SortingBuffer<S, DnaAllocatorType>
+    sorting_buffer: SortingBuffer<S, DnaAllocatorType>,
+    allocators: OptimizersAllocators
 }
 
 impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2Optimizer<'a, S, DnaAllocatorType>
@@ -99,8 +128,11 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
 
     /// Instantiate a new optimizer with a given meta params
     pub fn new(meta: impl Meta<'a, S, DnaAllocatorType> + 'a) -> Self {
-        let points_on_first_front: Vec<Vec<f64>> = Vec::with_capacity(meta.population_size());
-        let selected_fronts: Vec<bool> = Vec::with_capacity(meta.population_size());
+        let population_size = meta.population_size();
+        let count_of_objectives = meta.objectives().len();
+        let points_on_first_front: Vec<Vec<f64>> = Vec::with_capacity(population_size);
+        let selected_fronts: Vec<bool> = Vec::with_capacity(population_size);
+
 
         AGEMOEA2Optimizer {
             meta: Box::new(meta),
@@ -119,8 +151,15 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                 point_indicies_by_front: vec![],
                 selected_fronts,
                 final_population: vec![],
-                best_candidates: vec![]
+                best_candidates: vec![],
+                ideal_point: vec![],
+                normalization_vector: vec![],
+                points_on_i_front: vec![],
+                normalized_front_i: vec![]
             },
+            allocators: OptimizersAllocators::new(
+                count_of_objectives
+            )
         }
     }
 
@@ -158,11 +197,17 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
     {
         let pop = &self.sorting_buffer.final_population;
 
-        self.sorting_buffer.objs.clear();
+
+        for point in self.sorting_buffer.objs.drain(..)
+        {
+            self.allocators.point_allocator.deallocate(point)
+        }
+
         for cand in pop.iter()
         {
-            let objs_cand = self.values(&cand.sol);
-            self.sorting_buffer.objs.push(objs_cand)
+            let mut values_destination = self.allocators.point_allocator.allocate();
+            self.values(&cand.sol,&mut values_destination);
+            self.sorting_buffer.objs.push(values_destination)
         }
 
         ens_nondominated_sorting(
@@ -190,10 +235,14 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
         debug_assert!(!self.sorting_buffer.flat_fronts.is_empty());
 
         self.sorting_buffer.point_indicies_by_front.clear();
-        self.sorting_buffer.points.clear();
+        //self.sorting_buffer.points.clear();
+        for point in self.sorting_buffer.points.drain(..)
+        {
+            self.allocators.point_allocator.deallocate(point);
+        }
         self.separate_fronts_and_points();
         let clear_fronts = &self.sorting_buffer.point_indicies_by_front;
-        let points = &self.sorting_buffer.points;
+        // let points = &self.sorting_buffer.points;
 
         let prepared_fronts = &mut self.sorting_buffer.prepared_fronts;
         for cand in prepared_fronts.drain(..)
@@ -222,7 +271,11 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             prepared_fronts[*index].front = 0;
             let new_sol =
                 dna_allocator.clone_from_dna(&prepared_fronts[*index].sol);
-            self.sorting_buffer.best_candidates.push((self.sorting_buffer.points[*index].clone(), new_sol))
+            self.sorting_buffer.best_candidates.push((
+                // self.sorting_buffer.points[*index].clone(),
+                self.allocators.point_allocator.clone_vec(&self.sorting_buffer.points[*index]),
+                new_sol
+            ))
         }
 
 
@@ -252,7 +305,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
 
         for index in clear_fronts[0].iter()
         {
-            self.sorting_buffer.points_on_first_front.push(points[*index].clone())
+            self.sorting_buffer.points_on_first_front.push(self.allocators.point_allocator.clone_vec(&self.sorting_buffer.points[*index]))
         }
 
         for i in &mut self.sorting_buffer.selected_fronts {
@@ -274,23 +327,26 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
         self.sorting_buffer.crowding_distance.clear();
         self.sorting_buffer.crowding_distance.extend((0..prepared_fronts.len()).map(|_| 0.));
 
-        let mut ideal_point = points[0].clone();
+        self.sorting_buffer.ideal_point.clear();
+        self.sorting_buffer.ideal_point.extend((0..self.sorting_buffer.points[0].len()).map(|_| f64::INFINITY));
 
-        for point in points.iter().skip(1)
+        for point in self.sorting_buffer.points.iter()
         {
             for (i, coordinate) in point.iter().enumerate()
             {
-                if *coordinate < ideal_point[i]
+                if *coordinate < self.sorting_buffer.ideal_point[i]
                 {
-                    ideal_point[i] = *coordinate
+                    self.sorting_buffer.ideal_point[i] = *coordinate
                 }
             }
         }
 
-        let (p, normalized_front_points, normalization_vector) =
+        self.sorting_buffer.normalization_vector.clear();
+        let (p, normalized_front_points) =
             survival_score(
                 &self.sorting_buffer.points_on_first_front,
-                &ideal_point
+                &self.sorting_buffer.ideal_point,
+                &mut self.sorting_buffer.normalization_vector
             );
 
 
@@ -301,19 +357,37 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
 
         for i in 1..max_front_no {
             self.sorting_buffer.crowding_distance_i.clear();
-            let points_in_current_front = get_rows_from_matrix_by_indices_vector(&points, &clear_fronts[i]);
-            let normalized_front = points_in_current_front.iter()
+
+
+            for point in self.sorting_buffer.points_on_i_front.drain(..)
+            {
+                self.allocators.point_allocator.deallocate(point)
+            }
+
+            self.sorting_buffer.points_on_i_front.extend(clear_fronts[i]
+                .iter()
+                .map(
+                    |point_index|
+                    self.allocators.point_allocator.clone_vec(&self.sorting_buffer.points[*point_index])
+                ));
+
+            for point in self.sorting_buffer.normalized_front_i.drain(..)
+            {
+                self.allocators.point_allocator.deallocate(point)
+            }
+
+            self.sorting_buffer.normalized_front_i.extend(self.sorting_buffer.points_on_i_front.iter()
                 .map(|current_point|
                     {
-                        current_point.iter()
-                            .zip(&normalization_vector)
-                            .map(|(enumerator, denominator)| *enumerator / *denominator)
-                            .collect()
-                    })
-                .collect::<Vec<Vec<f64>>>();
+                        let mut new_point = self.allocators.point_allocator.allocate();
+                        new_point.extend(current_point.iter()
+                            .zip(&self.sorting_buffer.normalization_vector)
+                            .map(|(enumerator, denominator)| *enumerator / *denominator));
+                        new_point
+                    }));
 
             self.sorting_buffer.crowding_distance_i.extend(
-                minkowski_distances(&normalized_front, &ideal_point, p)
+                minkowski_distances(&self.sorting_buffer.normalized_front_i, &self.sorting_buffer.ideal_point, p)
                 .iter()
                 .map(|distance| 1. / *distance)
             );
@@ -341,11 +415,10 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             );
         rank.reverse();
 
-        let count_of_selected = mask_positive_count(&self.sorting_buffer.selected_fronts);
-        let n_surv = self.meta.population_size();
 
-        let count_of_remaining = n_surv - count_of_selected;
-        for i in 0..count_of_remaining
+
+
+        for i in 0..self.meta.population_size()-mask_positive_count(&self.sorting_buffer.selected_fronts)
         {
             while self.sorting_buffer.selected_fronts.len() <= self.sorting_buffer.last_front_indicies[rank[i]]
             {
@@ -380,28 +453,20 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             .fold(obj.value(s), |acc, cons| cons.value(s, acc))
     }
 
-    fn values(&self, s: &S) -> Vec<f64> {
-        self.meta
+    fn values(&self, s: &S, destination: &mut Vec<f64>) -> () {
+        destination.extend(self.meta
             .objectives()
             .iter()
-            .map(|obj| self.value(s, obj))
-            .collect()
-    }
-
-    fn dominates(&self, s1: &S, s2: &S) -> bool {
-        let vals1 = self.values(s1);
-        let vals2 = self.values(s2);
-
-        let vals: Vec<_> = vals1.into_iter().zip(vals2).collect();
-
-        vals.iter().all(|(v1, v2)| v1 <= v2) && vals.iter().any(|(v1, v2)| v1 < v2)
+            .map(|obj| self.value(s, obj)));
     }
 
     fn separate_fronts_and_points(&mut self) -> ()
     {
         for (candidate_index,candidate) in self.sorting_buffer.flat_fronts.iter().enumerate()
         {
-            self.sorting_buffer.points.push(self.values(&candidate.sol));
+            let mut values = self.allocators.point_allocator.allocate();
+            self.values(&candidate.sol, &mut values);
+            self.sorting_buffer.points.push(values);
             let front_id = candidate.front;
             while front_id >= self.sorting_buffer.point_indicies_by_front.len()
             {
@@ -534,14 +599,15 @@ fn get_crowd_distance(front_size: usize, selected: &mut Vec<bool>, distances: &V
     crowd_dist
 }
 
-fn survival_score(points_on_front: &Vec<Vec<f64>>, ideal_point: &Vec<f64>) -> (f64, Vec<f64>, Vec<f64>) {
+fn survival_score(points_on_front: &Vec<Vec<f64>>, ideal_point: &Vec<f64>, normalization_vector: &mut Vec<f64>) -> (f64, Vec<f64>) {
     let mut p = 1.;
     let front_size = points_on_front.len();
     let count_of_objectives = points_on_front[0].len();
     let mut crowding_distance = vec![0.; front_size];
     if front_size < count_of_objectives //looks like crutch
     {
-        return (p, crowding_distance, np_max_matrix_axis_one(&points_on_front))
+        np_max_matrix_axis_one(points_on_front, normalization_vector);
+        (p, crowding_distance)
     }
     else
     {
@@ -553,7 +619,8 @@ fn survival_score(points_on_front: &Vec<Vec<f64>>, ideal_point: &Vec<f64>) -> (f
 
         let extreme_point_indicies = find_corner_solution(&pre_normalized);
 
-        let (normalized_first_front, normalization_vector) = normalize(&pre_normalized, &extreme_point_indicies);
+        eval_normalization_vec(&pre_normalized, &extreme_point_indicies, normalization_vector);
+        let normalized_first_front = normalize(&points_on_front, normalization_vector);
 
         let mut selected = vec![false; pre_normalized.len()];
 
@@ -578,7 +645,7 @@ fn survival_score(points_on_front: &Vec<Vec<f64>>, ideal_point: &Vec<f64>) -> (f
 
         crowding_distance = get_crowd_distance(front_size, &mut selected, &distances);
 
-        return (p, crowding_distance, normalization_vector)
+        (p, crowding_distance)
     }
 }
 
@@ -653,11 +720,11 @@ fn norm_matrix_by_axis_one_and_ord(matrix: &Vec<Vec<f64>>, ord: f64) -> Vec<f64>
     result
 }
 
-fn normalize(points_on_front: &Vec<Vec<f64>>, extreme_point_indicies: &Vec<usize>) -> (Vec<Vec<f64>>, Vec<f64>)
+fn eval_normalization_vec(points_on_front: &Vec<Vec<f64>>, extreme_point_indicies: &Vec<usize>, destination: &mut Vec<f64>) -> ()
 {
     if extreme_point_indicies.len() != extreme_point_indicies.clone().into_iter().unique().collect::<Vec<usize>>().len()
     {
-        normalize_fallback(&points_on_front)
+        np_max_matrix_axis_one(&points_on_front, destination);
     } else
     {
         let extreme_points = get_rows_from_matrix_by_indices_vector(&points_on_front, &extreme_point_indicies);
@@ -666,31 +733,20 @@ fn normalize(points_on_front: &Vec<Vec<f64>>, extreme_point_indicies: &Vec<usize
             Ok( plane ) => {
                 if any_in_vec_is(&plane, |val| val == f64::NAN || val == f64::NEG_INFINITY || val == f64::INFINITY)
                 {
-                    return normalize_fallback(&points_on_front)
+                    return np_max_matrix_axis_one(&points_on_front, destination);
                 }
 
                 let prepared_normalization_vec = plane.into_iter().map(|a| 1. / a).collect::<Vec<f64>>();
 
                 if any_in_vec_is(&prepared_normalization_vec, |val| val == f64::NAN || val == f64::NEG_INFINITY || val == f64::INFINITY)
                 {
-                    return normalize_fallback(&points_on_front)
+                    return np_max_matrix_axis_one(&points_on_front, destination);
                 }
 
-                let normalization_vec = prepared_normalization_vec.into_iter().map(|a| if a == 0. { 1. } else { a }).collect::<Vec<f64>>();
-
-                let normalized_front = points_on_front.iter()
-                    .map(|point|
-                        point.iter()
-                            .zip(&normalization_vec)
-                            .map(|(a, b)| *a / *b)
-                            .collect::<Vec<f64>>())
-                    .collect();
-
-                (normalized_front, normalization_vec)
-
+                destination.extend(prepared_normalization_vec.into_iter().map(|a| if a == 0. { 1. } else { a }));
             }
             Err(_) => {
-                normalize_fallback(&points_on_front)
+                np_max_matrix_axis_one(&points_on_front, destination);
             }
         }
     }
@@ -703,34 +759,32 @@ fn any_in_vec_is<T, CompareFn>(source1: &Vec<T>, compare_fn: CompareFn) -> bool
     source1.iter().all(|&elem1| compare_fn(elem1))
 }
 
-fn normalize_fallback(points_on_front: &Vec<Vec<f64>>) -> (Vec<Vec<f64>>, Vec<f64>)
+fn normalize(points_on_front: &Vec<Vec<f64>>, normalization_vector: &Vec<f64>) -> Vec<Vec<f64>>
 {
-    let normalization_vec = np_max_matrix_axis_one(&points_on_front);
     let normalized_points = points_on_front.iter()
         .map(|point|
             point.iter()
-                .zip(&normalization_vec)
+                .zip(normalization_vector)
                 .map(|(a, b)| *a / *b)
                 .collect())
         .collect();
-    (normalized_points, normalization_vec)
+    normalized_points
 }
 
 
-fn np_max_matrix_axis_one(source: &Vec<Vec<f64>>) -> Vec<f64>
+fn np_max_matrix_axis_one(source: &Vec<Vec<f64>>, destination: &mut Vec<f64>) -> ()
 {
-    let mut result = source[0].clone();
-    for row in source.iter().skip(1)
+    destination.extend((0..source[0].len()).map(|_| f64::NEG_INFINITY));
+    for row in source.iter()
     {
         for (i, val) in row.iter().enumerate()
         {
-            if result[i] < *val
+            if destination[i] < *val
             {
-                result[i] = *val
+                destination[i] = *val
             }
         }
     }
-    result
 }
 
 
@@ -1006,7 +1060,11 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimize
                 break;
             }
 
-            if eval.can_terminate(iter, self.sorting_buffer.final_population.iter().map(|c| self.values(&c.sol)).collect())
+            if eval.can_terminate
+            (
+                iter,
+             &self.sorting_buffer.points
+            )
             {
                 break;
             }
