@@ -31,7 +31,7 @@ impl<T> VecAllocator<T>
             None => {
                 if self.default_vec_capacity != 0
                 {
-                    Vec::with_capacity(DefaultAllocateSize)
+                    Vec::with_capacity(self.default_vec_capacity)
                 }
                 else
                 {
