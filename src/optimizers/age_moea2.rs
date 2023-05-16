@@ -89,6 +89,7 @@ struct SortingBuffer<S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clo
     normalized_front_distances_i: Vec<f64>,
     front_curvative: f64,
     surv_scores_crowding_distance: Vec<f64>,
+    surv_scores_pre_normalized: Vec<Vec<f64>>,
 }
 
 struct OptimizersAllocators
@@ -161,7 +162,8 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                 normalized_front_i: vec![],
                 normalized_front_distances_i: vec![],
                 front_curvative: 1f64,
-                surv_scores_crowding_distance: vec![]
+                surv_scores_crowding_distance: vec![],
+                surv_scores_pre_normalized: vec![],
             },
             allocators: OptimizersAllocators::new(
                 count_of_objectives
@@ -456,18 +458,19 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
         }
         else
         {
-            let pre_normalized =
-                get_difference_between_matrix_and_vector(
-                    &self.sorting_buffer.points_on_first_front,
-                    &self.sorting_buffer.ideal_point
-                );
+            for point in self.sorting_buffer.surv_scores_pre_normalized.drain(..)
+            {
+                self.allocators.point_allocator.deallocate(point)
+            }
 
-            let extreme_point_indicies = find_corner_solution(&pre_normalized);
+            self.compute_prenormalized_points_for_survival_scores();
 
-            eval_normalization_vec(&pre_normalized, &extreme_point_indicies, &mut self.sorting_buffer.normalization_vector);
+            let extreme_point_indicies = find_corner_solution(&self.sorting_buffer.surv_scores_pre_normalized);
+
+            eval_normalization_vec(&self.sorting_buffer.surv_scores_pre_normalized, &extreme_point_indicies, &mut self.sorting_buffer.normalization_vector);
             let normalized_first_front = normalize(&self.sorting_buffer.points_on_first_front, &mut self.sorting_buffer.normalization_vector);
 
-            let mut selected = vec![false; pre_normalized.len()];
+            let mut selected = vec![false; self.sorting_buffer.surv_scores_pre_normalized.len()];
 
             for index in extreme_point_indicies.iter()
             {
@@ -489,6 +492,16 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
 
             self.sorting_buffer.surv_scores_crowding_distance.extend(get_crowd_distance(front_size, &mut selected, &distances).into_iter().map(|i|i));
         }
+    }
+
+    fn compute_prenormalized_points_for_survival_scores(&mut self) -> ()
+    {
+        for row in &self.sorting_buffer.points_on_first_front
+        {
+            let mut new_row = self.allocators.point_allocator.allocate();
+            new_row.extend(row.iter().zip(&self.sorting_buffer.ideal_point).map(|(a, b)|*a - *b));
+            self.sorting_buffer.surv_scores_pre_normalized.push(new_row)
+        };
     }
 
     #[allow(clippy::borrowed_box)]
