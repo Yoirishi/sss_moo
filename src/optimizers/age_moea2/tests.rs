@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 use itertools::Itertools;
-use crate::optimizers::age_moea2::{highest_value_and_index_in_vector, argpartition, matrix_slice_axis_one, sum_along_axis_one, take_along_axis_one, point_to_line_distance, find_corner_solution, norm_matrix_by_axis_one_and_ord, pairwise_distances, newton_raphson, get_crowd_distance, meshgrid, minkowski_distances, argsort, mask_positive_count, get_vector_according_indicies};
+use crate::optimizers::age_moea2::{highest_value_and_index_in_vector, argpartition, matrix_slice_axis_one, sum_along_axis_one, take_along_axis_one, point_to_line_distance, find_corner_solution, norm_matrix_by_axis_one_and_ord, compute_pairwise_distances, newton_raphson, get_crowd_distance, meshgrid, minkowski_distances, argsort, mask_positive_count, get_vector_according_indicies};
 use crate::optimizers::age_moea2::test_helpers::*;
 use crate::optimizers::nsga3::*;
 
@@ -108,7 +108,7 @@ fn test_pairwise_distance_fn()
 
     let expected_result = get_pairwise_distance_result();
 
-    let result = pairwise_distances(&source, p);
+    let result = compute_pairwise_distances(&source, p);
     result.into_iter().zip(expected_result).for_each(|(a, b)| assert!(vec_compare(&a, &b)))
 }
 
