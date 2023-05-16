@@ -3,7 +3,7 @@
 struct VecAllocator<T>
 {
     default_vec_capacity: usize,
-    buf: Vec<T>
+    buf: Vec<Vec<T>>
 }
 
 impl<T> VecAllocator<T>
