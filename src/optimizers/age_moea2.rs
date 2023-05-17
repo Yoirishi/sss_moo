@@ -762,7 +762,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                     let mut new_row = self.allocators.arg_partition_allocator.allocate();
                     new_row.extend(a.iter()
                         .enumerate()
-                        .sorted_by(|(b1, c1), (b2, c2)| c1.partial_cmp(c2).unwrap_or(Ordering::Equal))
+                        .sorted_unstable_by(|(b1, c1), (b2, c2)| c1.partial_cmp(c2).unwrap_or(Ordering::Equal))
                         .map(|(b, _c)| b));
                     new_row
                 }
