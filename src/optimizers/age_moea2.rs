@@ -169,10 +169,10 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
 
         AGEMOEA2Optimizer {
             meta: Box::new(meta),
-            best_solutions: Vec::new(),
+            best_solutions: Vec::with_capacity(population_size),
             sorting_buffer: SortingBuffer {
-                prepared_fronts: vec![],
-                objs: vec![],
+                prepared_fronts: Vec::with_capacity(population_size),
+                objs: Vec::with_capacity(population_size),
                 points_on_first_front,
                 crowding_distance_i: vec![],
                 crowding_distance: vec![],
@@ -184,7 +184,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                 point_indicies_by_front: vec![],
                 selected_fronts,
                 final_population: vec![],
-                best_candidates: vec![],
+                best_candidates: Vec::with_capacity(population_size),
                 ideal_point: vec![],
                 normalization_vector: vec![],
                 points_on_i_front: vec![],
