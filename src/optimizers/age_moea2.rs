@@ -110,6 +110,7 @@ struct OptimizersAllocators
     point_allocator: BufferAllocator<Vec<f64>, VecAllocator, VecInitializer>,
     distances_allocator: BufferAllocator<Vec<f64>, VecAllocator, VecInitializer>,
     mesh_grid_allocator: BufferAllocator<Vec<f64>, VecAllocator, VecInitializer>,
+    mesh_grid_index_value_allocator: BufferAllocator<Vec<(usize, f64)>, VecAllocator, VecInitializer>,
     arg_partition_allocator: BufferAllocator<Vec<usize>, VecAllocator, VecInitializer>,
 }
 
@@ -129,6 +130,10 @@ impl OptimizersAllocators
                 VecInitializer{}
             ),
             mesh_grid_allocator: BufferAllocator::new(
+                VecAllocator::new(population_size * 2),
+                VecInitializer{}
+            ),
+            mesh_grid_index_value_allocator: BufferAllocator::new(
                 VecAllocator::new(population_size * 2),
                 VecInitializer{}
             ),
@@ -759,11 +764,29 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
         self.sorting_buffer.arg_partition_dist_meshgrid.extend(self.sorting_buffer.mesh_grid.iter()
             .map(|a|
                 {
-                    let mut new_row = self.allocators.arg_partition_allocator.allocate();
-                    new_row.extend(a.iter()
-                        .enumerate()
-                        .sorted_unstable_by(|(b1, c1), (b2, c2)| c1.partial_cmp(c2).unwrap_or(Ordering::Equal))
-                        .map(|(b, _c)| b));
+                    let mut new_row =
+                        self.allocators.arg_partition_allocator.allocate();
+
+                    let mut tmp_sort_buffer =
+                        self.allocators.mesh_grid_index_value_allocator.allocate();
+
+                    tmp_sort_buffer.extend(
+                        a.iter()
+                            .enumerate()
+                            .map(|(index, value)| (index, *value))
+                    );
+
+                    tmp_sort_buffer.sort_unstable_by(|(_, c1), (_, c2)|
+                        c1.partial_cmp(c2).unwrap_or(Ordering::Equal)
+                    );
+
+                    new_row.extend(
+                        tmp_sort_buffer.iter()
+                        .map(|(b, _c)| b)
+                    );
+
+                    self.allocators.mesh_grid_index_value_allocator.deallocate(tmp_sort_buffer);
+
                     new_row
                 }
             ));
