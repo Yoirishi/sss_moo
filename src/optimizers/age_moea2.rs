@@ -771,10 +771,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
 
     #[allow(clippy::borrowed_box)]
     fn value(&self, s: &S, obj: &Box<dyn Objective<S, DnaAllocatorType> + 'a>) -> f64 {
-        self.meta
-            .constraints()
-            .iter()
-            .fold(obj.value(s), |acc, cons| cons.value(s, acc))
+        obj.value(s)
     }
 
     fn values(&self, s: &S, destination: &mut Vec<f64>) -> () {
