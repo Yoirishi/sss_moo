@@ -88,7 +88,6 @@ struct SortingBuffer<S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clo
     normalized_front_i: Vec<Vec<f64>>,
     normalized_front_distances_i: Vec<f64>,
     front_curvative: f64,
-    surv_scores_crowding_distance: Vec<f64>,
     surv_scores_pre_normalized: Vec<Vec<f64>>,
     normalized_solution: Vec<f64>,
     pairwise_distance: Vec<Vec<f64>>,
@@ -102,14 +101,16 @@ struct SortingBuffer<S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clo
     survival_scores: Vec<f64>,
     surv_scores_remaining: Vec<usize>,
     surv_scores_in_use: Vec<usize>,
-    mesh_grid: Vec<Vec<f64>>
+    mesh_grid: Vec<Vec<f64>>,
+    arg_partition_dist_meshgrid: Vec<Vec<usize>>
 }
 
 struct OptimizersAllocators
 {
     point_allocator: BufferAllocator<Vec<f64>, VecAllocator, VecInitializer>,
     distances_allocator: BufferAllocator<Vec<f64>, VecAllocator, VecInitializer>,
-    mesh_grid_allocator: BufferAllocator<Vec<f64>, VecAllocator, VecInitializer>
+    mesh_grid_allocator: BufferAllocator<Vec<f64>, VecAllocator, VecInitializer>,
+    arg_partition_allocator: BufferAllocator<Vec<usize>, VecAllocator, VecInitializer>,
 }
 
 impl OptimizersAllocators
@@ -128,6 +129,10 @@ impl OptimizersAllocators
                 VecInitializer{}
             ),
             mesh_grid_allocator: BufferAllocator::new(
+                VecAllocator::new(population_size * 2),
+                VecInitializer{}
+            ),
+            arg_partition_allocator: BufferAllocator::new(
                 VecAllocator::new(population_size * 2),
                 VecInitializer{}
             ),
@@ -186,7 +191,6 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                 normalized_front_i: vec![],
                 normalized_front_distances_i: vec![],
                 front_curvative: 1f64,
-                surv_scores_crowding_distance: vec![],
                 surv_scores_pre_normalized: vec![],
                 normalized_solution: vec![],
                 projected_front: vec![],
@@ -200,7 +204,8 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                 survival_scores: vec![],
                 surv_scores_remaining: vec![],
                 surv_scores_in_use: vec![],
-                mesh_grid: vec![]
+                mesh_grid: vec![],
+                arg_partition_dist_meshgrid: vec![]
             },
             allocators: OptimizersAllocators::new(
                 count_of_objectives,
@@ -563,8 +568,6 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                         .map(|elem| *elem / denominator));
                     new_distance
                 }));
-
-            // self.sorting_buffer.surv_scores_crowding_distance.extend(get_crowd_distance(front_size, &mut self.sorting_buffer.selected_by_survival_scores, &self.sorting_buffer.surv_scores_distances).into_iter().map(|i|i));
             self.get_crowd_distance()
         }
     }
@@ -676,10 +679,6 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
     }
 
     fn get_crowd_distance(&mut self) -> () {
-        // front_size: usize - self.sorting_buffer.points_on_first_front.len()
-        // selected: &mut Vec<bool> - &mut self.sorting_buffer.selected_by_survival_scores
-        // distances: &Vec<Vec<f64>> - &self.sorting_buffer.surv_scores_distances
-        // destination: Vec<f64> - self.sorting_buffer.surv_scores_crowding_distance
         let front_size = self.sorting_buffer.points_on_first_front.len();
 
 
@@ -688,9 +687,6 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             self.sorting_buffer.survival_scores.push(f64::INFINITY)
         }
 
-        // let mut crowd_dist = vec![f64::INFINITY; front_size];
-        // let mut remaining = self.sorting_buffer.surv_scores_remaining
-        // let mut in_use = self.sorting_buffer.surv_scores_in_use
         for _ in 0..(front_size - self.sorting_buffer.selected_by_survival_scores.iter().filter(|&&x| x).count()) {
             self.sorting_buffer.surv_scores_remaining.clear();
             self.sorting_buffer.surv_scores_in_use.clear();
@@ -718,8 +714,14 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
 
             if self.sorting_buffer.mesh_grid[0].len() > 1
             {
-                let argpartition_dist_meshgrid = argpartition(&self.sorting_buffer.mesh_grid);
-                let min_values = matrix_slice_axis_one(&argpartition_dist_meshgrid, 2);
+                for row in self.sorting_buffer.arg_partition_dist_meshgrid.drain(..)
+                {
+                    self.allocators.arg_partition_allocator.deallocate(row)
+                }
+
+                self.argpartition();
+                // let argpartition_dist_meshgrid = self.argpartition(&self.sorting_buffer.mesh_grid);
+                let min_values = matrix_slice_axis_one(&self.sorting_buffer.arg_partition_dist_meshgrid, 2);
                 let min_distances = take_along_axis_one(&self.sorting_buffer.mesh_grid, &min_values);
                 let sum_of_min_distances = sum_along_axis_one(&min_distances);
                 (d, index) = highest_value_and_index_in_vector(&sum_of_min_distances);
@@ -751,6 +753,20 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             }
             self.sorting_buffer.mesh_grid.push(row);
         }
+    }
+
+    fn argpartition(&mut self) -> () {
+        self.sorting_buffer.arg_partition_dist_meshgrid.extend(self.sorting_buffer.mesh_grid.iter()
+            .map(|a|
+                {
+                    let mut new_row = self.allocators.arg_partition_allocator.allocate();
+                    new_row.extend(a.iter()
+                        .enumerate()
+                        .sorted_by(|(b1, c1), (b2, c2)| c1.partial_cmp(c2).unwrap_or(Ordering::Equal))
+                        .map(|(b, _c)| b));
+                    new_row
+                }
+            ));
     }
 
     #[allow(clippy::borrowed_box)]
@@ -1004,17 +1020,6 @@ fn matrix_slice_axis_one<T: Clone>(source: &Vec<Vec<T>>, slice_lenght: usize) ->
             .map(|(_, val)| val.clone())
             .collect())
         .collect()
-}
-
-fn argpartition(source: &Vec<Vec<f64>>) -> Vec<Vec<usize>> {
-    source.iter()
-        .map(|a|
-            a.iter()
-                .enumerate()
-                .sorted_by(|(b1, c1), (b2, c2)| c1.partial_cmp(c2).unwrap_or(Ordering::Equal))
-                .map(|(b, _c)| b)
-                .collect()
-        ).collect()
 }
 
 fn highest_value_and_index_in_vector(data: &[f64]) -> (f64, usize) {
