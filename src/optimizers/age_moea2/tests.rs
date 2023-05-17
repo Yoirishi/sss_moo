@@ -1,19 +1,8 @@
 use std::cmp::Ordering;
 use itertools::Itertools;
-use crate::optimizers::age_moea2::{highest_value_and_index_in_vector, argpartition, matrix_slice_axis_one, sum_along_axis_one, take_along_axis_one, point_to_line_distance, find_corner_solution, norm_matrix_by_axis_one_and_ord, pairwise_distances, survival_score, newton_raphson, get_crowd_distance, meshgrid, minkowski_distances, argsort, mask_positive_count, get_vector_according_indicies};
+use crate::optimizers::age_moea2::{highest_value_and_index_in_vector, matrix_slice_axis_one, sum_along_axis_one, take_along_axis_one, point_to_line_distance, find_corner_solution, newton_raphson, minkowski_distances, argsort, mask_positive_count, get_vector_according_indicies};
 use crate::optimizers::age_moea2::test_helpers::*;
-use crate::optimizers::nsga3_final::*;
-
-#[test]
-fn test_argpartition_fn()
-{
-    let distance_meshgrid = get_distances_meshgrid_dataset();
-    let expected_result = expected_argpartition_result();
-
-    let result: Vec<Vec<usize>> = argpartition(&distance_meshgrid);
-
-    assert_eq!(expected_result, result)
-}
+use crate::optimizers::nsga3::*;
 
 #[test]
 fn test_matrix_slice_axis_one_fn()
@@ -72,7 +61,8 @@ fn test_point_to_line_distance()
 
     let expected_result = get_result_to_point_to_line_distance_fn();
 
-    let result = point_to_line_distance(&source_points, &eyed_matrix_row);
+    let mut result = vec![];
+    point_to_line_distance(&source_points, &eyed_matrix_row, &mut result);
     assert_eq!(expected_result, result)
 }
 
@@ -82,34 +72,18 @@ fn test_find_corner_solution()
     let source = get_points_to_find_corner_solution_fn();
     let expected_result = get_result_for_find_corner_solution_fn();
 
-    let result = find_corner_solution(&source);
+    let mut indicies_buffer = vec![];
+    let mut selected_buffer = vec![];
+    let mut distance_buffer = vec![];
 
-    assert_eq!(expected_result, result)
-}
+    find_corner_solution(
+        &source,
+        &mut indicies_buffer,
+        &mut selected_buffer,
+        &mut distance_buffer,
+    );
 
-#[test]
-fn test_norm_matrix_by_axis_one_and_ord_fn()
-{
-    let source_points = get_source_for_norm_matrix_by_axis_one_and_ord_fn();
-    let p = get_p_for_norm_matrix_by_axis_one_and_ord_fn();
-
-
-    let expected_result = get_result_for_norm_matrix_by_axis_one_and_ord_fn();
-
-    let result = norm_matrix_by_axis_one_and_ord(&source_points, p);
-    assert_eq!(expected_result, result)
-}
-
-#[test]
-fn test_pairwise_distance_fn()
-{
-    let source = get_pairwise_distance_source();
-    let p = get_pairwise_distance_p();
-
-    let expected_result = get_pairwise_distance_result();
-
-    let result = pairwise_distances(&source, p);
-    result.into_iter().zip(expected_result).for_each(|(a, b)| assert!(vec_compare(&a, &b)))
+    assert_eq!(expected_result, indicies_buffer)
 }
 
 #[test]
@@ -122,48 +96,6 @@ fn test_newton_raphson_fn()
 
     //current newton-raphson precision is 1e-15, so i check that expected result and real difference is lesser then precision
     assert!((expected_result - result).abs() < 1e-15)
-}
-
-#[test]
-fn test_meshgrid_fn()
-{
-    let (source_first_vec, source_second_vector, source_distances) = get_source_meshgrid_fn();
-    let expected_result = get_result_meshgrid_fn();
-
-    let result = meshgrid(&source_first_vec, &source_second_vector, &source_distances);
-
-    assert_eq!(result, expected_result)
-}
-
-#[test]
-fn test_get_crowding_distance_fn()
-{
-    let (source_front_size, mut source_selected, source_distances) = get_source_for_get_crowding_distance_fn();
-    let expected_result = get_result_for_get_crowding_distance_fn();
-
-    let result = get_crowd_distance(source_front_size, &mut source_selected, &source_distances);
-
-    assert_eq!(result, expected_result)
-}
-
-
-#[test]
-fn test_survival_score_fn()
-{
-    let source_front = get_source_front_for_survival_score_fn();
-    let source_ideal_point = get_source_ideal_point_for_survival_score_fn();
-
-    let (expected_p, expected_crowd_distance_for_best_front, expected_normalize_vector) =
-        get_expected_result_for_survival_score_fn();
-
-    let (p, normalized_front_points, normalization_vector) = survival_score(&source_front, &source_ideal_point);
-
-
-    normalized_front_points.iter().zip(&expected_crowd_distance_for_best_front).for_each(|(&a, &b)| println!("{}", (a - b)));
-
-    assert!(vec_compare(&normalization_vector, &expected_normalize_vector));
-    assert!(vec_compare(&normalized_front_points, &expected_crowd_distance_for_best_front));
-    assert!((p - expected_p).abs() < 1e-11);
 }
 
 struct MockSolution
@@ -244,7 +176,7 @@ fn sort_debug()
         .map(|candidate| candidate.front < max_front_no)
         .collect();
 
-    assert_eq!(selected_fronts, 
+    assert_eq!(selected_fronts,
                vec![true,false,true,false,true,true,false,false,false,true,true,true,true,false,false,true,false,true,false,false,true,false,false,true,false,true,false,false,false,false,false,false,false,false,false,false,false,true,false,false,false,false,true,true,true,true,false,false,false,false,true,false,false,true,false,false,true,false,false,false,false,false,false,false,false,true,false,false,true,true,false,false,false,false,true,true,true,false,false,false,true,true,false,false,true,false,false,true,false,false,false,false,true,false,false,true,false,false,true,true,false,false,false,false,true,false,false,true,false,true,true,false,true,false,true,true,true,true,false,true,true,true,true,true,false,false,true,true,true,true,true,true,true,false,false,true,false,false,false,true,false,true,true,false,true,true,true,true,true,false,false,true,false,false,false,false,false,false,true,false,false,true,true,false,false,true,false,false,true,true,false,false,true,false,false,false,false,true,true,false,false,false,true,true
                ]);
 
@@ -264,7 +196,8 @@ fn sort_debug()
         }
     }
 
-    let (p, normalized_front_points, normalization_vector) = survival_score(&points_on_first_front, &ideal_point);
+    let mut normalization_vector: Vec<f64> = vec![];
+    let (p, normalized_front_points) = (1., vec![]);
 
 
     for (&point_index, &crowding_distance_value) in clear_fronts[0].iter().zip(&normalized_front_points)

@@ -1,4 +1,4 @@
-use crate::optimizers::nsga3_final::{*};
+use crate::optimizers::nsga3::{*};
 
 fn get_points() -> Vec<Vec<f64>> {
     let mut points = vec![];
@@ -784,7 +784,9 @@ fn test_get_values_from_matrix_by_row_indicies_and_column_indicies()
 #[test]
 fn test_np_arrange_by_zero_to_target ()
 {
-    assert_eq!(vec![0, 1, 2, 3, 4, 5, 6], np_arrange_by_zero_to_target(7))
+    let mut destination = vec![];
+    np_arrange_by_zero_to_target(7, &mut destination);
+    assert_eq!(vec![0, 1, 2, 3, 4, 5, 6], destination)
 }
 
 #[test]

@@ -12,6 +12,7 @@ use std::convert::identity;
 use std::error::Error;
 use std::fs::read_to_string;
 use std::iter::Sum;
+use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Sub};
 use std::panic::{catch_unwind, PanicInfo};
 use ndarray::{Array2, ArrayView1, indices_of};
@@ -19,24 +20,26 @@ use rand_distr::num_traits;
 use rand_distr::num_traits::real::Real;
 use crate::evaluator::Evaluator;
 use crate::{Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
+use crate::dna_allocator::CloneReallocationMemoryBuffer;
 use crate::ens_nondominating_sorting::ens_nondominated_sorting;
-use crate::optimizers::nsga3_final::dist_matrix::DistMatrix;
+use crate::optimizers::nsga3::dist_matrix::DistMatrix;
 use crate::optimizers::Optimizer;
 
 type SolutionId = u64;
 
 #[derive(Debug, Clone)]
-struct Candidate<S: Solution> {
+struct Candidate<S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> {
     id: SolutionId,
     sol: S,
     front: usize,
     distance: f64,
-    niche: usize
+    niche: usize,
+    phantom: PhantomData<DnaAllocatorType>
 }
 
 
-pub struct NSGA3Optimizer<'a, S: Solution> {
-    meta: Box<dyn Meta<'a, S> + 'a>,
+pub struct NSGA3Optimizer<'a, S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> {
+    meta: Box<dyn Meta<'a, S, DnaAllocatorType> + 'a>,
     last_id: SolutionId,
     best_solutions: Vec<(Vec<f64>, S)>,
     hyper_plane: Hyperplane,
@@ -44,15 +47,15 @@ pub struct NSGA3Optimizer<'a, S: Solution> {
 }
 
 
-impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
+impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimizer<S, DnaAllocatorType> for NSGA3Optimizer<'a, S, DnaAllocatorType>
     where
-        S: Solution,
+        S: Solution<DnaAllocatorType>,
 {
     fn name(&self) -> &str {
         "NSGA-III"
     }
 
-    fn optimize(&mut self, eval: &mut Box<dyn Evaluator>, mut runtime_solutions_processor: Box<&mut dyn SolutionsRuntimeProcessor<S>>) {
+    fn optimize(&mut self, eval: &mut Box<dyn Evaluator>, mut runtime_solutions_processor: Box<&mut dyn SolutionsRuntimeProcessor<S, DnaAllocatorType>>) {
         //STUB
 
 
@@ -78,7 +81,8 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
                     sol,
                     front: 0,
                     distance: 0.,
-                    niche: 0
+                    niche: 0,
+                    phantom: Default::default(),
                 }
             })
             .collect();
@@ -134,12 +138,12 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
                 break;
             }
 
-            if eval.can_terminate(iter, parent_pop.iter().map(|c| self.values(&c.sol)).collect())
+            if eval.can_terminate(iter, &parent_pop.iter().map(|c| self.values(&c.sol)).collect())
             {
                 break;
             }
 
-            let mut child_pop: Vec<Candidate<S>> = Vec::with_capacity(pop_size);
+            let mut child_pop: Vec<Candidate<S, DnaAllocatorType>> = Vec::with_capacity(pop_size);
 
             while child_pop.len() < pop_size {
                 let p1 = parent_pop.choose_mut(&mut rnd).unwrap().clone();
@@ -151,15 +155,15 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
                 let mut c2 = self.tournament(p3, p4);
 
                 if self.odds(crossover_odds) {
-                    c1.sol.crossover(&mut c2.sol);
+                    c1.sol.crossover(runtime_solutions_processor.dna_allocator(),&mut c2.sol);
                 };
 
                 if self.odds(mutation_odds) {
-                    c1.sol.mutate();
+                    c1.sol.mutate(runtime_solutions_processor.dna_allocator());
                 };
 
                 if self.odds(mutation_odds) {
-                    c2.sol.mutate();
+                    c2.sol.mutate(runtime_solutions_processor.dna_allocator());
                 };
 
                 c1.id = self.next_id();
@@ -184,6 +188,7 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
                     distance: 0.0,
                     sol: solution,
                     niche: 0,
+                    phantom: Default::default(),
                 });
             }
 
@@ -214,9 +219,9 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
     }
 }
 
-impl<'a, S> NSGA3Optimizer<'a, S>
+impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> NSGA3Optimizer<'a, S, DnaAllocatorType>
     where
-        S: Solution,
+        S: Solution<DnaAllocatorType>,
 {
     fn name(&self) -> &str {
         "NSGA-III"
@@ -227,7 +232,7 @@ impl<'a, S> NSGA3Optimizer<'a, S>
     }
 
     /// Instantiate a new optimizer with a given meta params
-    pub fn new(meta: impl Meta<'a, S>+ 'a, ref_dirs: Vec<Vec<f64>>) -> Self {
+    pub fn new(meta: impl Meta<'a, S, DnaAllocatorType>+ 'a, ref_dirs: Vec<Vec<f64>>) -> Self {
         let dimension = meta.objectives().len();
         let pop_size = meta.population_size();
 
@@ -249,7 +254,7 @@ impl<'a, S> NSGA3Optimizer<'a, S>
         thread_rng().gen_ratio(ratio.0, ratio.1)
     }
 
-    fn tournament(&self, p1: Candidate<S>, p2: Candidate<S>) -> Candidate<S> {
+    fn tournament(&self, p1: Candidate<S, DnaAllocatorType>, p2: Candidate<S, DnaAllocatorType>) -> Candidate<S, DnaAllocatorType> {
         let mut rnd = thread_rng();
 
         if p1.front < p2.front {
@@ -262,14 +267,16 @@ impl<'a, S> NSGA3Optimizer<'a, S>
     }
 
     #[allow(clippy::needless_range_loop)]
-    fn sort(&mut self, pop: Vec<Candidate<S>>) -> Vec<Candidate<S>> {
+    fn sort(&mut self, pop: Vec<Candidate<S, DnaAllocatorType>>) -> Vec<Candidate<S, DnaAllocatorType>> {
         let objs = pop.iter()
             .map(|p| self.values(&p.sol))
             .collect();
 
-        let ens_fronts = ens_nondominated_sorting(&objs);
+        let mut ens_fronts = vec![];
 
-        let mut flat_fronts: Vec<Candidate<S>> = Vec::with_capacity(pop.len());
+        ens_nondominated_sorting(&objs, &mut vec![], &mut ens_fronts);
+
+        let mut flat_fronts: Vec<Candidate<S, DnaAllocatorType>> = Vec::with_capacity(pop.len());
         for (fidx, f) in ens_fronts.into_iter().enumerate() {
             for index in f {
                 let p = &pop[index];
@@ -280,7 +287,8 @@ impl<'a, S> NSGA3Optimizer<'a, S>
                     sol: p.sol.clone(),
                     front: fidx,
                     distance: 0.0,
-                    niche: 0
+                    niche: 0,
+                    phantom: Default::default(),
                 });
             }
         }
@@ -386,7 +394,7 @@ impl<'a, S> NSGA3Optimizer<'a, S>
     }
 
     #[allow(clippy::borrowed_box)]
-    fn value(&self, s: &S, obj: &Box<dyn Objective<S> + 'a>) -> f64 {
+    fn value(&self, s: &S, obj: &Box<dyn Objective<S, DnaAllocatorType> + 'a>) -> f64 {
         self.meta
             .constraints()
             .iter()
@@ -410,7 +418,7 @@ impl<'a, S> NSGA3Optimizer<'a, S>
         vals.iter().all(|(v1, v2)| v1 <= v2) && vals.iter().any(|(v1, v2)| v1 < v2)
     }
 
-    fn separate_fronts_and_points(&self, candidates: &Vec<Candidate<S>>) -> (Vec<Vec<usize>>, Vec<Vec<f64>>)
+    fn separate_fronts_and_points(&self, candidates: &Vec<Candidate<S, DnaAllocatorType>>) -> (Vec<Vec<usize>>, Vec<Vec<f64>>)
     {
         let mut fronts = vec![];
         let mut points = vec![];
@@ -976,7 +984,8 @@ fn associate_to_niches<'a>(points: &'a Vec<Vec<f64>>, niches: &'a Vec<Vec<f64>>,
     let distance_matrix = DistMatrix::new(normalized, &niches);
     let niche_of_individual = min_distances_indicies(&distance_matrix);
     let points_count = points.len();
-    let arranged_by_points_count = np_arrange_by_zero_to_target(points_count);
+    let mut arranged_by_points_count = vec![];
+    np_arrange_by_zero_to_target(points_count, &mut arranged_by_points_count);
     let dist_to_niches = get_values_from_dist_matrix_by_row_indicies_and_column_indicies(
         &distance_matrix,
         &arranged_by_points_count,
@@ -1293,14 +1302,12 @@ pub fn get_difference_between_matrix_and_vector<T:Sub<Output = T> + Copy>(matrix
     result
 }
 
-pub fn np_arrange_by_zero_to_target(target: usize) -> Vec<usize>
+pub fn np_arrange_by_zero_to_target(target: usize, destination: &mut Vec<usize>) -> ()
 {
-    let mut result = Vec::with_capacity(target);
     for i in 0..target
     {
-        result.push(i)
+        destination.push(i)
     }
-    result
 }
 
 fn get_values_from_matrix_by_row_indicies_and_column_indicies<T:Copy>(matrix: &Vec<Vec<T>>, row_indicies: &Vec<usize>, column_indicies: &Vec<usize>) -> Vec<T>

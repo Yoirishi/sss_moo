@@ -1,7 +1,7 @@
 /// Evaluate the termination condition
 pub trait Evaluator {
     /// Returns true if an optimization process can be stopped
-    fn can_terminate(&mut self, iter: usize, values: Vec<Vec<f64>>) -> bool;
+    fn can_terminate(&mut self, iter: usize, values: &Vec<Vec<f64>>) -> bool;
 }
 
 /// Implements a default termination condition.
@@ -28,7 +28,7 @@ impl DefaultEvaluator {
 }
 
 impl Evaluator for DefaultEvaluator {
-    fn can_terminate(&mut self, _iter: usize, objectives_values: Vec<Vec<f64>>) -> bool {
+    fn can_terminate(&mut self, _iter: usize, objectives_values: &Vec<Vec<f64>>) -> bool {
         let best_values =
             match &mut self.best_values {
                 None => {

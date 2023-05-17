@@ -10,15 +10,15 @@ use plotters::prelude::*;
 use crate::array_solution::{ArrayOptimizerParams, ArraySolution, ArraySolutionEvaluator, SolutionsRuntimeArrayProcessor, SolutionsRuntimeArrayProcessorWithStopAfterNumberOfGeneration};
 use crate::evaluator::{DefaultEvaluator, Evaluator};
 use crate::optimizers::nsga2::NSGA2Optimizer;
-use crate::optimizers::{nsga3_final, nsga3_self_impl, Optimizer};
+use crate::optimizers::{nsga3, Optimizer};
 use crate::problem::Problem;
 use crate::{Meta, Ratio, SolutionsRuntimeProcessor};
 use std::io::Write;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use rand::{Rng, thread_rng};
+use crate::dna_allocator::SimpleCloneAllocator;
 use crate::optimizers::age_moea2::AGEMOEA2Optimizer;
-use crate::optimizers::nsga3_chat_gpt::NSGA3Optimizer;
 use crate::optimizers::reference_direction_using_local_storage::ReferenceDirectionsUsingLocalStorage;
 use crate::optimizers::reference_directions::ReferenceDirections;
 use crate::problem::dtlz::dtlz1::Dtlz1;
@@ -31,8 +31,8 @@ use crate::problem::dtlz::dtlz7::Dtlz7;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::time::Instant;
 
-fn optimize_and_get_best_solutions(optimizer: &mut Box<dyn Optimizer<ArraySolution>>,
-                                   solutions_runtime_array_processor: Box<&mut dyn SolutionsRuntimeProcessor<ArraySolution>>,
+fn optimize_and_get_best_solutions(optimizer: &mut Box<dyn Optimizer<ArraySolution, SimpleCloneAllocator<ArraySolution>>>,
+                                   solutions_runtime_array_processor: Box<&mut dyn SolutionsRuntimeProcessor<ArraySolution, SimpleCloneAllocator<ArraySolution>>>,
                                    terminate_early_count: usize) -> Vec<(Vec<f64>, ArraySolution)>
 {
     let mut evaluator: Box<(dyn Evaluator)> = Box::new(DefaultEvaluator::new(terminate_early_count));
@@ -59,7 +59,7 @@ fn mean_convergence_metric_for_solutions(problem: &Box<dyn Problem + Send>, solu
 }
 
 fn print_best_solutions_3d_to_gif(problem: &Box<dyn Problem + Send>,
-                                  optimizer: &Box<dyn Optimizer<ArraySolution>>,
+                                  optimizer: &Box<dyn Optimizer<ArraySolution, SimpleCloneAllocator<ArraySolution>>>,
                                   best_solutions: &Vec<(Vec<f64>, ArraySolution)>,
                                   path: &std::path::Path)
 {
@@ -116,13 +116,13 @@ fn new_array_optimizer_params(array_solution_evaluator: Box<dyn ArraySolutionEva
 struct ProblemsSolver
 {
     test_problems: Vec<(Box<dyn ArraySolutionEvaluator + Send>, Box<dyn Problem + Send>)>,
-    optimizer_creators: Vec<fn(ArrayOptimizerParams) -> Box<dyn Optimizer<ArraySolution>>>,
+    optimizer_creators: Vec<fn(ArrayOptimizerParams) -> Box<dyn Optimizer<ArraySolution, SimpleCloneAllocator<ArraySolution>>>>,
 }
 
 impl ProblemsSolver
 {
     pub fn new(test_problems: Vec<(Box<dyn ArraySolutionEvaluator + Send>, Box<dyn Problem + Send>)>,
-               optimizer_creators: Vec<fn(ArrayOptimizerParams) -> Box<dyn Optimizer<ArraySolution>>>) -> Self
+               optimizer_creators: Vec<fn(ArrayOptimizerParams) -> Box<dyn Optimizer<ArraySolution, SimpleCloneAllocator<ArraySolution>>>>) -> Self
     {
         ProblemsSolver {
             test_problems,
@@ -675,8 +675,9 @@ fn print_3d_images_for_optimizers() {
     let problem_solver = ProblemsSolver::new(
         test_problems,
         vec![
-            |optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)),
-            |optimizer_params: ArrayOptimizerParams| Box::new(nsga3_final::NSGA3Optimizer::new(optimizer_params, ReferenceDirections::new(3, 5).reference_directions))
+            //|optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)),
+            //|optimizer_params: ArrayOptimizerParams| Box::new(nsga3_final::NSGA3Optimizer::new(optimizer_params, ReferenceDirections::new(3, 5).reference_directions))
+            |optimizer_params: ArrayOptimizerParams| Box::new(AGEMOEA2Optimizer::new(optimizer_params))
         ],
     );
 
@@ -706,11 +707,12 @@ fn calc_output_metric_for_optimizers() {
     let problem_solver = ProblemsSolver::new(
         test_problems,
         vec![
-            |optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)),
-            |optimizer_params: ArrayOptimizerParams| {
-                let count_of_objectives = optimizer_params.objectives().len();
-                Box::new(nsga3_final::NSGA3Optimizer::new(optimizer_params, ReferenceDirections::new(count_of_objectives, 5).reference_directions))
-            }
+            //|optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)),
+            //|optimizer_params: ArrayOptimizerParams| {
+            //    let count_of_objectives = optimizer_params.objectives().len();
+            //    Box::new(nsga3_final::NSGA3Optimizer::new(optimizer_params, ReferenceDirections::new(count_of_objectives, 5).reference_directions))
+            //},
+            |optimizer_params: ArrayOptimizerParams| Box::new(AGEMOEA2Optimizer::new(optimizer_params))
         ],
     );
 
@@ -770,3 +772,5 @@ fn calc_time_for_optimizers() {
                                      std::path::Path::new(&get_self_metric_results_dir(root_dir.as_str())),
                                      std::path::Path::new(&get_metrics_dir(root_dir.as_str())));
 }
+
+

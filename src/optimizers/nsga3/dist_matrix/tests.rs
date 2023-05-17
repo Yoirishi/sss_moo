@@ -1,5 +1,5 @@
-use crate::optimizers::nsga3_final::dist_matrix::DistMatrix;
-use crate::optimizers::nsga3_final::dist_matrix::test_helpers::*;
+use crate::optimizers::nsga3::dist_matrix::DistMatrix;
+use crate::optimizers::nsga3::dist_matrix::test_helpers::*;
 
 #[test]
 fn test_dist_matrix()
