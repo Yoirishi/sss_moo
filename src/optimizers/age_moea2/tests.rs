@@ -1,19 +1,8 @@
 use std::cmp::Ordering;
 use itertools::Itertools;
-use crate::optimizers::age_moea2::{highest_value_and_index_in_vector, argpartition, matrix_slice_axis_one, sum_along_axis_one, take_along_axis_one, point_to_line_distance, find_corner_solution, newton_raphson, get_crowd_distance, meshgrid, minkowski_distances, argsort, mask_positive_count, get_vector_according_indicies};
+use crate::optimizers::age_moea2::{highest_value_and_index_in_vector, matrix_slice_axis_one, sum_along_axis_one, take_along_axis_one, point_to_line_distance, find_corner_solution, newton_raphson, minkowski_distances, argsort, mask_positive_count, get_vector_according_indicies};
 use crate::optimizers::age_moea2::test_helpers::*;
 use crate::optimizers::nsga3::*;
-
-#[test]
-fn test_argpartition_fn()
-{
-    let distance_meshgrid = get_distances_meshgrid_dataset();
-    let expected_result = expected_argpartition_result();
-
-    let result: Vec<Vec<usize>> = argpartition(&distance_meshgrid);
-
-    assert_eq!(expected_result, result)
-}
 
 #[test]
 fn test_matrix_slice_axis_one_fn()
@@ -108,31 +97,6 @@ fn test_newton_raphson_fn()
     //current newton-raphson precision is 1e-15, so i check that expected result and real difference is lesser then precision
     assert!((expected_result - result).abs() < 1e-15)
 }
-
-#[test]
-fn test_meshgrid_fn()
-{
-    let (source_first_vec, source_second_vector, source_distances) = get_source_meshgrid_fn();
-    let expected_result = get_result_meshgrid_fn();
-
-    let result = meshgrid(&source_first_vec, &source_second_vector, &source_distances);
-
-    assert_eq!(result, expected_result)
-}
-
-#[test]
-fn test_get_crowding_distance_fn()
-{
-    let (source_front_size, mut source_selected, source_distances) = get_source_for_get_crowding_distance_fn();
-    let expected_result = get_result_for_get_crowding_distance_fn();
-
-    let result = get_crowd_distance(source_front_size, &mut source_selected, &source_distances);
-
-    assert_eq!(result, expected_result)
-}
-
-
-
 
 struct MockSolution
 {
