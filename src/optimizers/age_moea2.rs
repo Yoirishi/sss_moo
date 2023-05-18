@@ -119,9 +119,9 @@ struct OptimizersAllocators
     point_allocator: BufferAllocator<Vec<f64>, VecAllocator, VecInitializer>,
     distances_allocator: BufferAllocator<Vec<f64>, VecAllocator, VecInitializer>,
     mesh_grid_allocator: BufferAllocator<Vec<f64>, VecAllocator, VecInitializer>,
-    mesh_grid_index_value_allocator: BufferAllocator<Vec<(usize, f64)>, VecAllocator, VecInitializer>,
+    usize_index_f64_value_allocator: BufferAllocator<Vec<(usize, f64)>, VecAllocator, VecInitializer>,
     arg_partition_allocator: BufferAllocator<Vec<usize>, VecAllocator, VecInitializer>,
-    arg_partition_min_values_allocator: BufferAllocator<Vec<usize>, VecAllocator, VecInitializer>
+    arg_partition_min_values_allocator: BufferAllocator<Vec<usize>, VecAllocator, VecInitializer>,
 }
 
 impl OptimizersAllocators
@@ -143,7 +143,7 @@ impl OptimizersAllocators
                 VecAllocator::new(population_size * 2),
                 VecInitializer{}
             ),
-            mesh_grid_index_value_allocator: BufferAllocator::new(
+            usize_index_f64_value_allocator: BufferAllocator::new(
                 VecAllocator::new(population_size * 2),
                 VecInitializer{}
             ),
@@ -154,7 +154,7 @@ impl OptimizersAllocators
             arg_partition_min_values_allocator: BufferAllocator::new(
                 VecAllocator::new(2),
                 VecInitializer{}
-            ),
+            )
         }
     }
 }
@@ -485,11 +485,27 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
         );
 
         self.sorting_buffer.sort_rank.clear();
-        self.sorting_buffer.sort_rank.extend(self.sorting_buffer.distances_on_last_front.iter()
-            .enumerate()
-            .sorted_unstable_by(|(i, a), (j, b)| a.partial_cmp(b)
-                .unwrap_or(Ordering::Equal))
-            .map(|(index, _)| index));
+
+
+        let mut tmp_sort_buffer = self.allocators.usize_index_f64_value_allocator.allocate();
+
+        tmp_sort_buffer.extend(
+            self.sorting_buffer.distances_on_last_front.iter()
+                .enumerate()
+                .map(|(index, value)| (index, *value))
+        );
+
+        tmp_sort_buffer.sort_unstable_by(|(_, c1), (_, c2)|
+            c1.partial_cmp(c2).unwrap_or(Ordering::Equal)
+        );
+
+        self.sorting_buffer.sort_rank.extend(
+            tmp_sort_buffer.iter()
+                .map(|(b, _c)| b)
+        );
+
+        self.allocators.usize_index_f64_value_allocator.deallocate(tmp_sort_buffer);
+
 
         self.sorting_buffer.sort_rank.reverse();
 
@@ -553,12 +569,6 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             {
                 self.allocators.point_allocator.deallocate(point);
             }
-
-            // self.eval_normalization_vec(
-            //     &self.sorting_buffer.surv_scores_pre_normalized,
-            //     &self.sorting_buffer.surv_scores_extreme_point_indicies,
-            //     &mut self.sorting_buffer.normalization_vector
-            // );
 
             self.eval_normalization_vec();
 
@@ -816,7 +826,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                         self.allocators.arg_partition_allocator.allocate();
 
                     let mut tmp_sort_buffer =
-                        self.allocators.mesh_grid_index_value_allocator.allocate();
+                        self.allocators.usize_index_f64_value_allocator.allocate();
 
                     tmp_sort_buffer.extend(
                         a.iter()
@@ -833,7 +843,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                         .map(|(b, _c)| b)
                     );
 
-                    self.allocators.mesh_grid_index_value_allocator.deallocate(tmp_sort_buffer);
+                    self.allocators.usize_index_f64_value_allocator.deallocate(tmp_sort_buffer);
 
                     new_row
                 }
@@ -842,9 +852,6 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
 
     fn eval_normalization_vec(&mut self) -> ()
     {
-        //     points_on_front:  &self.sorting_buffer.surv_scores_pre_normalized,
-        //     extreme_point_indicies: &self.sorting_buffer.surv_scores_extreme_point_indicies,
-        //     destination: &mut self.sorting_buffer.normalization_vector
         self.sorting_buffer.unique_extreme_point_indicies.clear();
         self.sorting_buffer.surv_scores_extreme_point_indicies
             .iter()
