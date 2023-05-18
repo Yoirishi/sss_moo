@@ -112,7 +112,8 @@ struct SortingBuffer<S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clo
     sum_of_min_of_meshgrid: Vec<f64>,
     distances_on_last_front: Vec<f64>,
     sort_rank: Vec<usize>,
-    diagonal_eyed_buffer: Vec<Vec<f64>>
+    diagonal_eyed_buffer: Vec<Vec<f64>>,
+    ones_matrix: Vec<f64>
 }
 
 struct OptimizersAllocators
@@ -234,6 +235,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                 distances_on_last_front: Vec::with_capacity(population_size*2),
                 sort_rank: Vec::with_capacity(population_size*2),
                 diagonal_eyed_buffer: Vec::with_capacity(population_size*2),
+                ones_matrix: vec![1.; count_of_objectives]
             },
             allocators: OptimizersAllocators::new(
                 count_of_objectives,
@@ -878,8 +880,8 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
         {
             let extreme_points = get_rows_from_matrix_by_indices_vector(
                 &self.sorting_buffer.surv_scores_pre_normalized, &self.sorting_buffer.surv_scores_extreme_point_indicies);
-            let ones_matrix = vec![1.; extreme_points.len()];
-            match Hyperplane::line_alg_gauss_solve(&extreme_points, &ones_matrix) {
+            // let ones_matrix = vec![1.; extreme_points.len()];
+            match Hyperplane::line_alg_gauss_solve(&extreme_points, &self.sorting_buffer.ones_matrix) {
                 Ok( plane ) => {
                     if any_in_vec_is(&plane, |val| val == f64::NAN || val == f64::NEG_INFINITY || val == f64::INFINITY)
                     {
