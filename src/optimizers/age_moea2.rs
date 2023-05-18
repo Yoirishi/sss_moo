@@ -4,6 +4,7 @@ mod vec_allocator;
 mod vec_initializer;
 
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use rand::seq::SliceRandom;
 use std::convert::identity;
 use std::iter::Sum;
@@ -102,7 +103,9 @@ struct SortingBuffer<S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clo
     surv_scores_remaining: Vec<usize>,
     surv_scores_in_use: Vec<usize>,
     mesh_grid: Vec<Vec<f64>>,
-    arg_partition_dist_meshgrid: Vec<Vec<usize>>
+    arg_partition_dist_meshgrid: Vec<Vec<usize>>,
+    extreme_points: Vec<Vec<f64>>,
+    unique_extreme_point_indicies: HashSet<usize>
 }
 
 struct OptimizersAllocators
@@ -171,7 +174,6 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
         let points_on_first_front: Vec<Vec<f64>> = Vec::with_capacity(population_size);
         let selected_fronts: Vec<bool> = Vec::with_capacity(population_size);
 
-
         AGEMOEA2Optimizer {
             meta: Box::new(meta),
             best_solutions: Vec::with_capacity(population_size),
@@ -210,7 +212,9 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                 surv_scores_remaining: vec![],
                 surv_scores_in_use: vec![],
                 mesh_grid: vec![],
-                arg_partition_dist_meshgrid: vec![]
+                arg_partition_dist_meshgrid: vec![],
+                extreme_points: Vec::with_capacity(count_of_objectives),
+                unique_extreme_point_indicies: HashSet::new()
             },
             allocators: OptimizersAllocators::new(
                 count_of_objectives,
@@ -519,11 +523,18 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                 &mut self.sorting_buffer.surv_scores_extreme_point_distances
             );
 
-            eval_normalization_vec(
-                &self.sorting_buffer.surv_scores_pre_normalized,
-                &self.sorting_buffer.surv_scores_extreme_point_indicies,
-                &mut self.sorting_buffer.normalization_vector
-            );
+            for point in self.sorting_buffer.extreme_points.drain(..)
+            {
+                self.allocators.point_allocator.deallocate(point);
+            }
+
+            // self.eval_normalization_vec(
+            //     &self.sorting_buffer.surv_scores_pre_normalized,
+            //     &self.sorting_buffer.surv_scores_extreme_point_indicies,
+            //     &mut self.sorting_buffer.normalization_vector
+            // );
+
+            self.eval_normalization_vec();
 
             for point in self.sorting_buffer.normalized_front_i.drain(..)
             {
@@ -791,6 +802,57 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             ));
     }
 
+    fn eval_normalization_vec(&mut self) -> ()
+    {
+        //     points_on_front:  &self.sorting_buffer.surv_scores_pre_normalized,
+        //     extreme_point_indicies: &self.sorting_buffer.surv_scores_extreme_point_indicies,
+        //     destination: &mut self.sorting_buffer.normalization_vector
+        self.sorting_buffer.unique_extreme_point_indicies.clear();
+        self.sorting_buffer.surv_scores_extreme_point_indicies
+            .iter()
+            .for_each(|i| { self.sorting_buffer.unique_extreme_point_indicies.insert(*i); });
+
+
+        if self.sorting_buffer.surv_scores_extreme_point_indicies.len() != self.sorting_buffer.unique_extreme_point_indicies.len()
+        {
+            np_max_matrix_axis_one(&self.sorting_buffer.surv_scores_pre_normalized, &mut self.sorting_buffer.normalization_vector);
+        } else
+        {
+            let extreme_points = get_rows_from_matrix_by_indices_vector(
+                &self.sorting_buffer.surv_scores_pre_normalized, &self.sorting_buffer.surv_scores_extreme_point_indicies);
+            let ones_matrix = vec![1.; extreme_points.len()];
+            match Hyperplane::line_alg_gauss_solve(&extreme_points, &ones_matrix) {
+                Ok( plane ) => {
+                    if any_in_vec_is(&plane, |val| val == f64::NAN || val == f64::NEG_INFINITY || val == f64::INFINITY)
+                    {
+                        return np_max_matrix_axis_one(
+                            &self.sorting_buffer.surv_scores_pre_normalized,
+                            &mut self.sorting_buffer.normalization_vector
+                        );
+                    }
+
+                    let prepared_normalization_vec = plane.into_iter().map(|a| 1. / a).collect::<Vec<f64>>();
+
+                    if any_in_vec_is(&prepared_normalization_vec, |val| val == f64::NAN || val == f64::NEG_INFINITY || val == f64::INFINITY)
+                    {
+                        return np_max_matrix_axis_one(
+                            &self.sorting_buffer.surv_scores_pre_normalized,
+                            &mut self.sorting_buffer.normalization_vector);
+                    }
+
+                    self.sorting_buffer.normalization_vector.extend(prepared_normalization_vec.into_iter().map(|a| if a == 0. { 1. } else { a }));
+                }
+                Err(_) => {
+                    np_max_matrix_axis_one(
+                        &self.sorting_buffer.surv_scores_pre_normalized,
+                        &mut self.sorting_buffer.normalization_vector
+                    )
+                    ;
+                }
+            }
+        }
+    }
+
     #[allow(clippy::borrowed_box)]
     fn value(&self, s: &S, obj: &Box<dyn Objective<S, DnaAllocatorType> + 'a>) -> f64 {
         obj.value(s)
@@ -889,48 +951,10 @@ fn newton_raphson(points: &Vec<Vec<f64>>, extreme_points_indicies: &Vec<usize>) 
     p_current
 }
 
-fn get_remaining(upper_border: usize, selected: &Vec<bool>) -> Vec<usize> {
-    let mut remaining: Vec<usize> = (0..upper_border).collect();
-    remaining.retain(|&i| !selected[i]);
-    remaining
-}
-
 fn get_in_use(upper_border: usize, selected: &Vec<bool>) -> Vec<usize> {
     let mut remaining: Vec<usize> = (0..upper_border).collect();
     remaining.retain(|&i| selected[i]);
     remaining
-}
-
-fn eval_normalization_vec(points_on_front: &Vec<Vec<f64>>, extreme_point_indicies: &Vec<usize>, destination: &mut Vec<f64>) -> ()
-{
-    if extreme_point_indicies.len() != extreme_point_indicies.clone().into_iter().unique().collect::<Vec<usize>>().len()
-    {
-        np_max_matrix_axis_one(&points_on_front, destination);
-    } else
-    {
-        let extreme_points = get_rows_from_matrix_by_indices_vector(&points_on_front, &extreme_point_indicies);
-        let ones_matrix = vec![1.; extreme_points.len()];
-        match Hyperplane::line_alg_gauss_solve(&extreme_points, &ones_matrix) {
-            Ok( plane ) => {
-                if any_in_vec_is(&plane, |val| val == f64::NAN || val == f64::NEG_INFINITY || val == f64::INFINITY)
-                {
-                    return np_max_matrix_axis_one(&points_on_front, destination);
-                }
-
-                let prepared_normalization_vec = plane.into_iter().map(|a| 1. / a).collect::<Vec<f64>>();
-
-                if any_in_vec_is(&prepared_normalization_vec, |val| val == f64::NAN || val == f64::NEG_INFINITY || val == f64::INFINITY)
-                {
-                    return np_max_matrix_axis_one(&points_on_front, destination);
-                }
-
-                destination.extend(prepared_normalization_vec.into_iter().map(|a| if a == 0. { 1. } else { a }));
-            }
-            Err(_) => {
-                np_max_matrix_axis_one(&points_on_front, destination);
-            }
-        }
-    }
 }
 
 fn any_in_vec_is<T, CompareFn>(source1: &Vec<T>, compare_fn: CompareFn) -> bool
