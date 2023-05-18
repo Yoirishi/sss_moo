@@ -110,6 +110,8 @@ struct SortingBuffer<S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clo
     min_of_arg_partition_dist_meshgrid: Vec<Vec<usize>>,
     min_of_meshgrid: Vec<Vec<f64>>,
     sum_of_min_of_meshgrid: Vec<f64>,
+    distances_on_last_front: Vec<f64>,
+    sort_rank: Vec<usize>,
 }
 
 struct OptimizersAllocators
@@ -180,14 +182,14 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
     pub fn new(meta: impl Meta<'a, S, DnaAllocatorType> + 'a) -> Self {
         let population_size = meta.population_size();
         let count_of_objectives = meta.objectives().len();
-        let points_on_first_front: Vec<Vec<f64>> = Vec::with_capacity(population_size);
+        let points_on_first_front: Vec<Vec<f64>> = Vec::with_capacity(population_size*2);
         let selected_fronts: Vec<bool> = Vec::with_capacity(population_size);
 
         AGEMOEA2Optimizer {
             meta: Box::new(meta),
             best_solutions: Vec::with_capacity(population_size),
             sorting_buffer: SortingBuffer {
-                prepared_fronts: Vec::with_capacity(population_size),
+                prepared_fronts: Vec::with_capacity(population_size*2),
                 objs: Vec::with_capacity(population_size),
                 points_on_first_front,
                 crowding_distance_i: vec![],
@@ -228,6 +230,8 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                 min_of_arg_partition_dist_meshgrid: vec![],
                 min_of_meshgrid: vec![],
                 sum_of_min_of_meshgrid: vec![],
+                distances_on_last_front: Vec::with_capacity(population_size*2),
+                sort_rank: Vec::with_capacity(population_size*2)
             },
             allocators: OptimizersAllocators::new(
                 count_of_objectives,
@@ -471,22 +475,31 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             .map(|(i, _)| i)
         );
 
-        let mut rank =
-            argsort(
-                &get_vector_according_indicies(
-                    &self.sorting_buffer.crowding_distance,
-                    &self.sorting_buffer.last_front_indicies
-                )
-            );
-        rank.reverse();
+        self.sorting_buffer.distances_on_last_front.clear();
+        self.sorting_buffer.distances_on_last_front.extend(
+            self.sorting_buffer.point_indicies_by_front[max_front_no]
+                .iter()
+                .map(|i| {
+                    self.sorting_buffer.crowding_distance[*i]
+                })
+        );
+
+        self.sorting_buffer.sort_rank.clear();
+        self.sorting_buffer.sort_rank.extend(self.sorting_buffer.distances_on_last_front.iter()
+            .enumerate()
+            .sorted_unstable_by(|(i, a), (j, b)| a.partial_cmp(b)
+                .unwrap_or(Ordering::Equal))
+            .map(|(index, _)| index));
+
+        self.sorting_buffer.sort_rank.reverse();
 
         for i in 0..self.meta.population_size()-mask_positive_count(&self.sorting_buffer.selected_fronts)
         {
-            while self.sorting_buffer.selected_fronts.len() <= self.sorting_buffer.last_front_indicies[rank[i]]
+            while self.sorting_buffer.selected_fronts.len() <= self.sorting_buffer.last_front_indicies[self.sorting_buffer.sort_rank[i]]
             {
                 self.sorting_buffer.selected_fronts.push(false)
             }
-            self.sorting_buffer.selected_fronts[self.sorting_buffer.last_front_indicies[rank[i]]] = true
+            self.sorting_buffer.selected_fronts[self.sorting_buffer.last_front_indicies[self.sorting_buffer.sort_rank[i]]] = true
         }
 
         for cand in self.sorting_buffer.final_population.drain(..)
