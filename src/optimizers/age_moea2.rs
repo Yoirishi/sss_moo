@@ -697,10 +697,9 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             self.sorting_buffer.surv_scores_in_use.clear();
 
             self.sorting_buffer.surv_scores_remaining.extend(
-                get_remaining(
-                    front_size,
-                    &self.sorting_buffer.selected_by_survival_scores)
+                (0..front_size).filter(|i| !self.sorting_buffer.selected_by_survival_scores[*i])
             );
+
             self.sorting_buffer.surv_scores_in_use.extend(
                 get_in_use(
                     front_size,
