@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 use itertools::Itertools;
-use crate::optimizers::age_moea2::{highest_value_and_index_in_vector, point_to_line_distance, find_corner_solution, newton_raphson, minkowski_distances, argsort, mask_positive_count, get_vector_according_indicies};
+use crate::optimizers::age_moea2::{highest_value_and_index_in_vector, point_to_line_distance, find_corner_solution, newton_raphson, minkowski_distances};
 use crate::optimizers::age_moea2::test_helpers::*;
 use crate::optimizers::nsga3::*;
 
@@ -138,7 +138,7 @@ fn sort_debug()
 
     let mut selected_fronts = prepared_fronts.iter()
         .map(|candidate| candidate.front < max_front_no)
-        .collect();
+        .collect::<Vec<bool>>();
 
     assert_eq!(selected_fronts,
                vec![true,false,true,false,true,true,false,false,false,true,true,true,true,false,false,true,false,true,false,false,true,false,false,true,false,true,false,false,false,false,false,false,false,false,false,false,false,true,false,false,false,false,true,true,true,true,false,false,false,false,true,false,false,true,false,false,true,false,false,false,false,false,false,false,false,true,false,false,true,true,false,false,false,false,true,true,true,false,false,false,true,true,false,false,true,false,false,true,false,false,false,false,true,false,false,true,false,false,true,true,false,false,false,false,true,false,false,true,false,true,true,false,true,false,true,true,true,true,false,true,true,true,true,true,false,false,true,true,true,true,true,true,true,false,false,true,false,false,false,true,false,true,true,false,true,true,true,true,true,false,false,true,false,false,false,false,false,false,true,false,false,true,true,false,false,true,false,false,true,true,false,false,true,false,false,false,false,true,true,false,false,false,true,true
@@ -225,7 +225,7 @@ fn sort_debug()
 
 
 
-    let count_of_selected = mask_positive_count(&selected_fronts);
+    let count_of_selected = 52;
     let n_surv = 92;
 
     let count_of_remaining = n_surv - count_of_selected;

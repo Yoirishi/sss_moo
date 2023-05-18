@@ -509,7 +509,10 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
 
         self.sorting_buffer.sort_rank.reverse();
 
-        for i in 0..self.meta.population_size()-mask_positive_count(&self.sorting_buffer.selected_fronts)
+        let mut count_of_selected = 0usize;
+        self.sorting_buffer.selected_fronts.iter().for_each(|val| if *val { count_of_selected += 1 });
+
+        for i in 0..self.meta.population_size()-count_of_selected
         {
             while self.sorting_buffer.selected_fronts.len() <= self.sorting_buffer.last_front_indicies[self.sorting_buffer.sort_rank[i]]
             {
@@ -1142,27 +1145,6 @@ fn project_on_manifold(point: &Vec<f64>, p: f64, destination: &mut Vec<f64>) -> 
     destination.extend(point.iter().map(|&x| x / dist));
 }
 
-fn get_vector_according_indicies<T: Clone>(source: &Vec<T>, indicies: &Vec<usize>) -> Vec<T>
-{
-    indicies.iter().map(|&index| source[index].clone() ).collect()
-}
-
-fn argsort<T: PartialOrd>(arr: &[T]) -> Vec<usize> {
-    arr.iter()
-        .enumerate()
-        .sorted_by(|(i, a), (j, b)| a.partial_cmp(b)
-            .unwrap_or(Ordering::Equal))
-        .map(|(index, _)| index)
-        .collect()
-}
-
-fn form_front_by_indicies<T: Clone>(points_indexes: &Vec<usize>, points: &Vec<T>) -> Vec<T>
-{
-    points_indexes.iter().map(|index| points[*index].clone()).collect()
-}
-
-
-
 fn minkowski_distances(a: &Vec<Vec<f64>>, b: &Vec<f64>, p: f64) -> Vec<f64> {
     let row_count = a.len();
     let mut distances = Vec::with_capacity(row_count);
@@ -1176,11 +1158,6 @@ fn minkowski_distances(a: &Vec<Vec<f64>>, b: &Vec<f64>, p: f64) -> Vec<f64> {
     }
 
     distances
-}
-
-fn mask_positive_count(mask: &Vec<bool>) -> usize
-{
-    mask.iter().filter(|value| **value).collect::<Vec<_>>().len()
 }
 
 impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimizer<S, DnaAllocatorType> for AGEMOEA2Optimizer<'a, S, DnaAllocatorType>
