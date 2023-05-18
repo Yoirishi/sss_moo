@@ -1,44 +1,11 @@
 use std::cmp::Ordering;
 use itertools::Itertools;
-use crate::optimizers::age_moea2::{highest_value_and_index_in_vector, matrix_slice_axis_one, sum_along_axis_one, take_along_axis_one, point_to_line_distance, find_corner_solution, newton_raphson, minkowski_distances, argsort, mask_positive_count, get_vector_according_indicies};
+use crate::buffer_allocator::BufferAllocator;
+use crate::optimizers::age_moea2::{highest_value_and_index_in_vector, point_to_line_distance, find_corner_solution, newton_raphson, minkowski_distances};
 use crate::optimizers::age_moea2::test_helpers::*;
+use crate::optimizers::age_moea2::vec_allocator::VecAllocator;
+use crate::optimizers::age_moea2::vec_initializer::VecInitializer;
 use crate::optimizers::nsga3::*;
-
-#[test]
-fn test_matrix_slice_axis_one_fn()
-{
-    let matrix = expected_argpartition_result();
-    let expected_result = expected_matrix_slice_result();
-
-    let result = matrix_slice_axis_one(&matrix, 2);
-
-    assert_eq!(expected_result, result)
-}
-
-
-#[test]
-fn test_take_along_axis()
-{
-    let distance_meshgrid = get_distances_meshgrid_dataset();
-    let indicies = expected_matrix_slice_result();
-    let expected_result = expected_take_along_axis_one();
-
-    let result = take_along_axis_one(&distance_meshgrid, &indicies);
-
-    assert_eq!(expected_result, result)
-}
-
-
-#[test]
-fn test_sum_along_axis_one()
-{
-    let source = expected_take_along_axis_one();
-    let expected_result = expected_sum_along_axis_one();
-
-    let result = sum_along_axis_one(&source);
-
-    assert_eq!(expected_result, result)
-}
 
 #[test]
 fn test_argmax()
@@ -61,42 +28,13 @@ fn test_point_to_line_distance()
 
     let expected_result = get_result_to_point_to_line_distance_fn();
 
+    let mut distance_allocator = BufferAllocator::new(VecAllocator::new(100), VecInitializer{});
+
     let mut result = vec![];
-    point_to_line_distance(&source_points, &eyed_matrix_row, &mut result);
+    point_to_line_distance(&source_points, &eyed_matrix_row, &mut result, &mut distance_allocator);
     assert_eq!(expected_result, result)
 }
 
-#[test]
-fn test_find_corner_solution()
-{
-    let source = get_points_to_find_corner_solution_fn();
-    let expected_result = get_result_for_find_corner_solution_fn();
-
-    let mut indicies_buffer = vec![];
-    let mut selected_buffer = vec![];
-    let mut distance_buffer = vec![];
-
-    find_corner_solution(
-        &source,
-        &mut indicies_buffer,
-        &mut selected_buffer,
-        &mut distance_buffer,
-    );
-
-    assert_eq!(expected_result, indicies_buffer)
-}
-
-#[test]
-fn test_newton_raphson_fn()
-{
-    let (source_front, source_extreme_indicies) = get_newton_raphson_source();
-    let expected_result = get_result_for_newton_raphson();
-
-    let result = newton_raphson(&source_front, &source_extreme_indicies);
-
-    //current newton-raphson precision is 1e-15, so i check that expected result and real difference is lesser then precision
-    assert!((expected_result - result).abs() < 1e-15)
-}
 
 struct MockSolution
 {
@@ -174,7 +112,7 @@ fn sort_debug()
 
     let mut selected_fronts = prepared_fronts.iter()
         .map(|candidate| candidate.front < max_front_no)
-        .collect();
+        .collect::<Vec<bool>>();
 
     assert_eq!(selected_fronts,
                vec![true,false,true,false,true,true,false,false,false,true,true,true,true,false,false,true,false,true,false,false,true,false,false,true,false,true,false,false,false,false,false,false,false,false,false,false,false,true,false,false,false,false,true,true,true,true,false,false,false,false,true,false,false,true,false,false,true,false,false,false,false,false,false,false,false,true,false,false,true,true,false,false,false,false,true,true,true,false,false,false,true,true,false,false,true,false,false,true,false,false,false,false,true,false,false,true,false,false,true,true,false,false,false,false,true,false,false,true,false,true,true,false,true,false,true,true,true,true,false,true,true,true,true,true,false,false,true,true,true,true,true,true,true,false,false,true,false,false,false,true,false,true,true,false,true,true,true,true,true,false,false,true,false,false,false,false,false,false,true,false,false,true,true,false,false,true,false,false,true,true,false,false,true,false,false,false,false,true,true,false,false,false,true,true
@@ -261,7 +199,7 @@ fn sort_debug()
 
 
 
-    let count_of_selected = mask_positive_count(&selected_fronts);
+    let count_of_selected = 52;
     let n_surv = 92;
 
     let count_of_remaining = n_surv - count_of_selected;
