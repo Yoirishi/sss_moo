@@ -192,7 +192,6 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                 point_indicies_by_front: vec![],
                 selected_fronts,
                 final_population: Vec::with_capacity(population_size),
-                best_candidates: Vec::with_capacity(population_size),
                 ideal_point: Vec::with_capacity(count_of_objectives),
                 normalization_vector: Vec::with_capacity(count_of_objectives),
                 points_on_i_front: Vec::with_capacity(population_size*2),
