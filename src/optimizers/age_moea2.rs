@@ -565,7 +565,8 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                 &self.sorting_buffer.surv_scores_pre_normalized,
                 &mut self.sorting_buffer.surv_scores_extreme_point_indicies,
                 &mut self.sorting_buffer.surv_scores_extreme_point_selected,
-                &mut self.sorting_buffer.surv_scores_extreme_point_distances
+                &mut self.sorting_buffer.surv_scores_extreme_point_distances,
+                &mut self.allocators.distances_allocator
             );
 
             for point in self.sorting_buffer.extreme_points.drain(..)
@@ -1054,7 +1055,8 @@ fn find_corner_solution(
     points_on_front: &Vec<Vec<f64>>,
     indicies_buffer: &mut Vec<usize>,
     selected_buffer: &mut Vec<bool>,
-    distance_buffer: &mut Vec<f64>
+    distance_buffer: &mut Vec<f64>,
+    distance_allocator: &mut BufferAllocator<Vec<f64>, VecAllocator, VecInitializer>
 ) -> () {
     let count_of_points = points_on_front.len();
     let count_of_objectives = points_on_front[0].len();
@@ -1083,7 +1085,12 @@ fn find_corner_solution(
 
         for i in 0..count_of_objectives
         {
-            point_to_line_distance(&points_on_front,  &diagonal_eyed_matrix[i], distance_buffer);
+            point_to_line_distance(
+                &points_on_front,
+                &diagonal_eyed_matrix[i],
+                distance_buffer,
+                    distance_allocator
+            );
             for (selected_point_index, selected_point) in selected_buffer.iter().enumerate()
             {
                 if *selected_point
@@ -1099,7 +1106,13 @@ fn find_corner_solution(
     }
 }
 
-fn point_to_line_distance(points: &Vec<Vec<f64>>, prepared_vec: &Vec<f64>, destination: &mut Vec<f64>) -> ()
+fn point_to_line_distance
+(
+    points: &Vec<Vec<f64>>,
+    prepared_vec: &Vec<f64>,
+    destination: &mut Vec<f64>,
+    distance_allocator: &mut BufferAllocator<Vec<f64>, VecAllocator, VecInitializer>
+) -> ()
 {
     for i in 0..points.len()
     {
@@ -1114,13 +1127,17 @@ fn point_to_line_distance(points: &Vec<Vec<f64>>, prepared_vec: &Vec<f64>, desti
             .map(|a| *a * *a )
             .sum::<f64>();
         let t = enumerator / denominator;
-        destination[i] = current_point.iter()
+
+        let mut tmp_buffer = distance_allocator.allocate();
+        tmp_buffer.extend(current_point.iter()
             .zip(prepared_vec)
-            .map(|(a, b)| *a - t * *b)
-            .collect::<Vec<f64>>()
+            .map(|(a, b)| *a - t * *b));
+
+        destination[i] = tmp_buffer
             .iter()
             .map(|a| a * a)
             .sum::<f64>();
+        distance_allocator.deallocate(tmp_buffer);
     }
 }
 
