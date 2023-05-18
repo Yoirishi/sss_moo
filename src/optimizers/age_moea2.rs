@@ -107,6 +107,9 @@ struct SortingBuffer<S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clo
     extreme_points: Vec<Vec<f64>>,
     unique_extreme_point_indicies: HashSet<usize>,
     prepared_normalization_vec: Vec<f64>,
+    min_of_arg_partition_dist_meshgrid: Vec<Vec<usize>>,
+    min_of_meshgrid: Vec<Vec<f64>>,
+    sum_of_min_of_meshgrid: Vec<f64>,
 }
 
 struct OptimizersAllocators
@@ -116,6 +119,7 @@ struct OptimizersAllocators
     mesh_grid_allocator: BufferAllocator<Vec<f64>, VecAllocator, VecInitializer>,
     mesh_grid_index_value_allocator: BufferAllocator<Vec<(usize, f64)>, VecAllocator, VecInitializer>,
     arg_partition_allocator: BufferAllocator<Vec<usize>, VecAllocator, VecInitializer>,
+    arg_partition_min_values_allocator: BufferAllocator<Vec<usize>, VecAllocator, VecInitializer>
 }
 
 impl OptimizersAllocators
@@ -143,6 +147,10 @@ impl OptimizersAllocators
             ),
             arg_partition_allocator: BufferAllocator::new(
                 VecAllocator::new(population_size * 2),
+                VecInitializer{}
+            ),
+            arg_partition_min_values_allocator: BufferAllocator::new(
+                VecAllocator::new(2),
                 VecInitializer{}
             ),
         }
@@ -217,6 +225,9 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                 extreme_points: Vec::with_capacity(count_of_objectives),
                 unique_extreme_point_indicies: HashSet::new(),
                 prepared_normalization_vec: Vec::with_capacity(count_of_objectives),
+                min_of_arg_partition_dist_meshgrid: vec![],
+                min_of_meshgrid: vec![],
+                sum_of_min_of_meshgrid: vec![],
             },
             allocators: OptimizersAllocators::new(
                 count_of_objectives,
@@ -714,9 +725,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             );
 
             self.sorting_buffer.surv_scores_in_use.extend(
-                get_in_use(
-                    front_size,
-                    &self.sorting_buffer.selected_by_survival_scores)
+                (0..front_size).filter(|i| self.sorting_buffer.selected_by_survival_scores[*i])
             );
 
             for mesh in self.sorting_buffer.mesh_grid.drain(..)
@@ -736,12 +745,26 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                     self.allocators.arg_partition_allocator.deallocate(row)
                 }
 
+                for row in self.sorting_buffer.min_of_arg_partition_dist_meshgrid.drain(..)
+                {
+                    self.allocators.arg_partition_min_values_allocator.deallocate(row)
+                }
+
+                for row in self.sorting_buffer.min_of_meshgrid.drain(..)
+                {
+                    self.allocators.mesh_grid_allocator.deallocate(row)
+                }
+
+                self.sorting_buffer.sum_of_min_of_meshgrid.clear();
+
                 self.argpartition();
-                // let argpartition_dist_meshgrid = self.argpartition(&self.sorting_buffer.mesh_grid);
-                let min_values = matrix_slice_axis_one(&self.sorting_buffer.arg_partition_dist_meshgrid, 2);
-                let min_distances = take_along_axis_one(&self.sorting_buffer.mesh_grid, &min_values);
-                let sum_of_min_distances = sum_along_axis_one(&min_distances);
-                (d, index) = highest_value_and_index_in_vector(&sum_of_min_distances);
+                self.extract_min_values_of_arg_partition_meshgrid();
+                self.take_along_axis_one();
+                self.sorting_buffer.sum_of_min_of_meshgrid.extend(self.sorting_buffer.min_of_meshgrid.iter()
+                    .map(|row|
+                        row.iter().sum::<f64>()
+                    ));
+                (d, index) = highest_value_and_index_in_vector(&self.sorting_buffer.sum_of_min_of_meshgrid);
             }
             else
             {
@@ -855,6 +878,34 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
         }
     }
 
+    fn extract_min_values_of_arg_partition_meshgrid(&mut self) -> ()
+    {
+        self.sorting_buffer.min_of_arg_partition_dist_meshgrid.extend(self.sorting_buffer.arg_partition_dist_meshgrid.iter()
+            .map(|val|
+                {
+                    let mut row = self.allocators.arg_partition_min_values_allocator.allocate();
+                    row.extend(val.iter()
+                        .enumerate()
+                        .filter(|(index, _)| *index < 2)
+                        .map(|(_, val)| val));
+                    row
+            }));
+    }
+
+    fn take_along_axis_one(&mut self) -> ()
+    {
+        self.sorting_buffer.min_of_meshgrid.extend(
+            self.sorting_buffer.min_of_arg_partition_dist_meshgrid.iter()
+                .enumerate()
+                .map(|(row_index, row)| {
+                    let mut new_row = self.allocators.mesh_grid_allocator.allocate();
+                    new_row.extend(row.iter()
+                        .map(|index| self.sorting_buffer.mesh_grid[row_index][*index]));
+                    new_row
+                })
+        );
+    }
+
     #[allow(clippy::borrowed_box)]
     fn value(&self, s: &S, obj: &Box<dyn Objective<S, DnaAllocatorType> + 'a>) -> f64 {
         obj.value(s)
@@ -951,12 +1002,6 @@ fn newton_raphson(points: &Vec<Vec<f64>>, extreme_points_indicies: &Vec<usize>) 
         } else { last_p_value = p_current }
     }
     p_current
-}
-
-fn get_in_use(upper_border: usize, selected: &Vec<bool>) -> Vec<usize> {
-    let mut remaining: Vec<usize> = (0..upper_border).collect();
-    remaining.retain(|&i| selected[i]);
-    remaining
 }
 
 fn any_in_vec_is<T, CompareFn>(source1: &Vec<T>, compare_fn: CompareFn) -> bool
@@ -1056,17 +1101,6 @@ fn point_to_line_distance(points: &Vec<Vec<f64>>, prepared_vec: &Vec<f64>, desti
     }
 }
 
-fn matrix_slice_axis_one<T: Clone>(source: &Vec<Vec<T>>, slice_lenght: usize) -> Vec<Vec<T>>
-{
-    source.iter()
-        .map(|val| val.iter()
-            .enumerate()
-            .filter(|(index, _)| *index < slice_lenght)
-            .map(|(_, val)| val.clone())
-            .collect())
-        .collect()
-}
-
 fn highest_value_and_index_in_vector(data: &[f64]) -> (f64, usize) {
     data.iter()
         .enumerate()
@@ -1127,26 +1161,6 @@ fn minkowski_distances(a: &Vec<Vec<f64>>, b: &Vec<f64>, p: f64) -> Vec<f64> {
 fn mask_positive_count(mask: &Vec<bool>) -> usize
 {
     mask.iter().filter(|value| **value).collect::<Vec<_>>().len()
-}
-
-fn take_along_axis_one<T: Clone>(source: &Vec<Vec<T>>, indicies: &Vec<Vec<usize>>) -> Vec<Vec<T>>
-{
-    indicies.iter()
-        .enumerate()
-        .map(|(row_index, row)|
-            row.iter()
-                .map(|index| source[row_index][*index].clone())
-                .collect())
-        .collect()
-}
-
-fn sum_along_axis_one(source: &Vec<Vec<f64>>) -> Vec<f64>
-{
-    source.iter()
-        .map(|row|
-            row.clone().iter().sum()
-        )
-        .collect()
 }
 
 impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimizer<S, DnaAllocatorType> for AGEMOEA2Optimizer<'a, S, DnaAllocatorType>

@@ -1,44 +1,8 @@
 use std::cmp::Ordering;
 use itertools::Itertools;
-use crate::optimizers::age_moea2::{highest_value_and_index_in_vector, matrix_slice_axis_one, sum_along_axis_one, take_along_axis_one, point_to_line_distance, find_corner_solution, newton_raphson, minkowski_distances, argsort, mask_positive_count, get_vector_according_indicies};
+use crate::optimizers::age_moea2::{highest_value_and_index_in_vector, point_to_line_distance, find_corner_solution, newton_raphson, minkowski_distances, argsort, mask_positive_count, get_vector_according_indicies};
 use crate::optimizers::age_moea2::test_helpers::*;
 use crate::optimizers::nsga3::*;
-
-#[test]
-fn test_matrix_slice_axis_one_fn()
-{
-    let matrix = expected_argpartition_result();
-    let expected_result = expected_matrix_slice_result();
-
-    let result = matrix_slice_axis_one(&matrix, 2);
-
-    assert_eq!(expected_result, result)
-}
-
-
-#[test]
-fn test_take_along_axis()
-{
-    let distance_meshgrid = get_distances_meshgrid_dataset();
-    let indicies = expected_matrix_slice_result();
-    let expected_result = expected_take_along_axis_one();
-
-    let result = take_along_axis_one(&distance_meshgrid, &indicies);
-
-    assert_eq!(expected_result, result)
-}
-
-
-#[test]
-fn test_sum_along_axis_one()
-{
-    let source = expected_take_along_axis_one();
-    let expected_result = expected_sum_along_axis_one();
-
-    let result = sum_along_axis_one(&source);
-
-    assert_eq!(expected_result, result)
-}
 
 #[test]
 fn test_argmax()
