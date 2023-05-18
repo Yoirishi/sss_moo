@@ -112,6 +112,7 @@ struct SortingBuffer<S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clo
     sum_of_min_of_meshgrid: Vec<f64>,
     distances_on_last_front: Vec<f64>,
     sort_rank: Vec<usize>,
+    diagonal_eyed_buffer: Vec<Vec<f64>>
 }
 
 struct OptimizersAllocators
@@ -192,46 +193,47 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                 prepared_fronts: Vec::with_capacity(population_size*2),
                 objs: Vec::with_capacity(population_size),
                 points_on_first_front,
-                crowding_distance_i: vec![],
-                crowding_distance: vec![],
-                last_front_indicies: vec![],
+                crowding_distance_i: Vec::with_capacity(population_size*2),
+                crowding_distance: Vec::with_capacity(population_size*2),
+                last_front_indicies: Vec::with_capacity(population_size),
                 ens_fronts: vec![],
                 ens_indicies: vec![],
-                flat_fronts: vec![],
+                flat_fronts: Vec::with_capacity(population_size),
                 points: vec![],
                 point_indicies_by_front: vec![],
                 selected_fronts,
-                final_population: vec![],
+                final_population: Vec::with_capacity(population_size),
                 best_candidates: Vec::with_capacity(population_size),
-                ideal_point: vec![],
-                normalization_vector: vec![],
-                points_on_i_front: vec![],
-                normalized_front_i: vec![],
-                normalized_front_distances_i: vec![],
+                ideal_point: Vec::with_capacity(count_of_objectives),
+                normalization_vector: Vec::with_capacity(count_of_objectives),
+                points_on_i_front: Vec::with_capacity(population_size*2),
+                normalized_front_i: Vec::with_capacity(count_of_objectives),
+                normalized_front_distances_i: Vec::with_capacity(population_size*2),
                 front_curvative: 1f64,
-                surv_scores_pre_normalized: vec![],
-                normalized_solution: vec![],
-                projected_front: vec![],
+                surv_scores_pre_normalized: Vec::with_capacity(population_size*2),
+                normalized_solution: Vec::with_capacity(population_size),
+                projected_front: Vec::with_capacity(population_size*2),
                 pairwise_distance: vec![],
                 pairwise_distance_mid_point: vec![],
-                selected_by_survival_scores: vec![],
-                surv_scores_distances: vec![],
-                surv_scores_extreme_point_indicies: vec![],
-                surv_scores_extreme_point_selected: vec![],
-                surv_scores_extreme_point_distances: vec![],
-                survival_scores: vec![],
-                surv_scores_remaining: vec![],
-                surv_scores_in_use: vec![],
-                mesh_grid: vec![],
-                arg_partition_dist_meshgrid: vec![],
+                selected_by_survival_scores: Vec::with_capacity(population_size*2),
+                surv_scores_distances: Vec::with_capacity(population_size*2),
+                surv_scores_extreme_point_indicies: Vec::with_capacity(count_of_objectives),
+                surv_scores_extreme_point_selected: Vec::with_capacity(count_of_objectives),
+                surv_scores_extreme_point_distances: Vec::with_capacity(count_of_objectives),
+                survival_scores: Vec::with_capacity(population_size*2),
+                surv_scores_remaining: Vec::with_capacity(population_size*2),
+                surv_scores_in_use: Vec::with_capacity(population_size*2),
+                mesh_grid: Vec::with_capacity(population_size*2),
+                arg_partition_dist_meshgrid: Vec::with_capacity(population_size*2),
                 extreme_points: Vec::with_capacity(count_of_objectives),
                 unique_extreme_point_indicies: HashSet::new(),
                 prepared_normalization_vec: Vec::with_capacity(count_of_objectives),
-                min_of_arg_partition_dist_meshgrid: vec![],
-                min_of_meshgrid: vec![],
-                sum_of_min_of_meshgrid: vec![],
+                min_of_arg_partition_dist_meshgrid: Vec::with_capacity(2),
+                min_of_meshgrid: Vec::with_capacity(population_size*2),
+                sum_of_min_of_meshgrid: Vec::with_capacity(population_size*2),
                 distances_on_last_front: Vec::with_capacity(population_size*2),
-                sort_rank: Vec::with_capacity(population_size*2)
+                sort_rank: Vec::with_capacity(population_size*2),
+                diagonal_eyed_buffer: Vec::with_capacity(population_size*2),
             },
             allocators: OptimizersAllocators::new(
                 count_of_objectives,
@@ -561,11 +563,18 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             self.sorting_buffer.surv_scores_extreme_point_distances.clear();
             self.sorting_buffer.surv_scores_extreme_point_selected.clear();
             self.sorting_buffer.surv_scores_extreme_point_indicies.clear();
+
+            for row in self.sorting_buffer.diagonal_eyed_buffer.drain(..)
+            {
+                self.allocators.distances_allocator.deallocate(row)
+            }
+
             find_corner_solution(
                 &self.sorting_buffer.surv_scores_pre_normalized,
                 &mut self.sorting_buffer.surv_scores_extreme_point_indicies,
                 &mut self.sorting_buffer.surv_scores_extreme_point_selected,
                 &mut self.sorting_buffer.surv_scores_extreme_point_distances,
+                &mut self.sorting_buffer.diagonal_eyed_buffer,
                 &mut self.allocators.distances_allocator
             );
 
@@ -1056,6 +1065,7 @@ fn find_corner_solution(
     indicies_buffer: &mut Vec<usize>,
     selected_buffer: &mut Vec<bool>,
     distance_buffer: &mut Vec<f64>,
+    diagonal_eyed_matrix: &mut Vec<Vec<f64>>,
     distance_allocator: &mut BufferAllocator<Vec<f64>, VecAllocator, VecInitializer>
 ) -> () {
     let count_of_points = points_on_front.len();
@@ -1066,7 +1076,7 @@ fn find_corner_solution(
         np_arrange_by_zero_to_target(count_of_points, indicies_buffer)
     } else
     {
-        let diagonal_eyed_matrix = Hyperplane::eye(&count_of_objectives, Some(1. + 1e-6), Some(1e-6)).clone();
+        eye(&count_of_objectives, Some(1. + 1e-6), Some(1e-6), diagonal_eyed_matrix, distance_allocator);
 
         while indicies_buffer.len() < count_of_objectives
         {
@@ -1103,6 +1113,41 @@ fn find_corner_solution(
             selected_buffer[index] = true;
 
         }
+    }
+}
+
+fn eye(
+    n_size: &usize,
+    diagonal_value: Option<f64>,
+    stub_value: Option<f64>,
+    destination: &mut Vec<Vec<f64>>,
+    row_allocator: &mut BufferAllocator<Vec<f64>, VecAllocator, VecInitializer>
+) -> ()
+{
+    let main_diagonal_value = match diagonal_value {
+        None => { 1. }
+        Some(v) => { v }
+    };
+    let stub_value = match stub_value {
+        None => { 0. }
+        Some(v) => { v }
+    };
+
+    for i in 0..*n_size
+    {
+        let mut row = row_allocator.allocate();
+        for j in 0..*n_size
+        {
+            if i == j
+            {
+                row.push(main_diagonal_value);
+            }
+            else
+            {
+                row.push(stub_value);
+            }
+        }
+        destination.push(row);
     }
 }
 

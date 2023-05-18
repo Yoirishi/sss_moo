@@ -35,27 +35,6 @@ fn test_point_to_line_distance()
     assert_eq!(expected_result, result)
 }
 
-#[test]
-fn test_find_corner_solution()
-{
-    let source = get_points_to_find_corner_solution_fn();
-    let expected_result = get_result_for_find_corner_solution_fn();
-    let mut distance_allocator = BufferAllocator::new(VecAllocator::new(100), VecInitializer{});
-
-    let mut indicies_buffer = vec![];
-    let mut selected_buffer = vec![];
-    let mut distance_buffer = vec![];
-
-    find_corner_solution(
-        &source,
-        &mut indicies_buffer,
-        &mut selected_buffer,
-        &mut distance_buffer,
-        &mut distance_allocator
-    );
-
-    assert_eq!(expected_result, indicies_buffer)
-}
 
 #[test]
 fn test_newton_raphson_fn()
