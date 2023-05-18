@@ -105,7 +105,8 @@ struct SortingBuffer<S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clo
     mesh_grid: Vec<Vec<f64>>,
     arg_partition_dist_meshgrid: Vec<Vec<usize>>,
     extreme_points: Vec<Vec<f64>>,
-    unique_extreme_point_indicies: HashSet<usize>
+    unique_extreme_point_indicies: HashSet<usize>,
+    prepared_normalization_vec: Vec<f64>,
 }
 
 struct OptimizersAllocators
@@ -214,7 +215,8 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                 mesh_grid: vec![],
                 arg_partition_dist_meshgrid: vec![],
                 extreme_points: Vec::with_capacity(count_of_objectives),
-                unique_extreme_point_indicies: HashSet::new()
+                unique_extreme_point_indicies: HashSet::new(),
+                prepared_normalization_vec: Vec::with_capacity(count_of_objectives),
             },
             allocators: OptimizersAllocators::new(
                 count_of_objectives,
@@ -830,17 +832,17 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
                             &mut self.sorting_buffer.normalization_vector
                         );
                     }
+                    self.sorting_buffer.prepared_normalization_vec.clear();
+                    self.sorting_buffer.prepared_normalization_vec.extend(plane.into_iter().map(|a| 1. / a));
 
-                    let prepared_normalization_vec = plane.into_iter().map(|a| 1. / a).collect::<Vec<f64>>();
-
-                    if any_in_vec_is(&prepared_normalization_vec, |val| val == f64::NAN || val == f64::NEG_INFINITY || val == f64::INFINITY)
+                    if any_in_vec_is(&self.sorting_buffer.prepared_normalization_vec, |val| val == f64::NAN || val == f64::NEG_INFINITY || val == f64::INFINITY)
                     {
                         return np_max_matrix_axis_one(
                             &self.sorting_buffer.surv_scores_pre_normalized,
                             &mut self.sorting_buffer.normalization_vector);
                     }
 
-                    self.sorting_buffer.normalization_vector.extend(prepared_normalization_vec.into_iter().map(|a| if a == 0. { 1. } else { a }));
+                    self.sorting_buffer.normalization_vector.extend(self.sorting_buffer.prepared_normalization_vec.iter().map(|&a| if a == 0. { 1. } else { a }));
                 }
                 Err(_) => {
                     np_max_matrix_axis_one(
