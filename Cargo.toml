@@ -10,7 +10,10 @@ license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [profile.test]
+inherits = "release"
 opt-level = 3
+lto = true
+codegen-units=1
 
 [dependencies]
 rand = "0.8.5"

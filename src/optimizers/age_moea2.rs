@@ -81,7 +81,6 @@ struct SortingBuffer<S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clo
     point_indicies_by_front: Vec<Vec<usize>>,
     selected_fronts: Vec<bool>,
     final_population: Vec<Candidate<S, DnaAllocatorType>>,
-    best_candidates: Vec<(Vec<f64>, S)>,
     flat_fronts: Vec<Candidate<S, DnaAllocatorType>>,
     ideal_point: Vec<f64>,
     normalization_vector: Vec<f64>,
@@ -162,7 +161,6 @@ impl OptimizersAllocators
 
 pub struct AGEMOEA2Optimizer<'a, S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> {
     meta: Box<dyn Meta<'a, S, DnaAllocatorType> + 'a>,
-    best_solutions: Vec<(Vec<f64>, S)>,
     sorting_buffer: SortingBuffer<S, DnaAllocatorType>,
     allocators: OptimizersAllocators
 }
@@ -171,14 +169,6 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
     where
         S: Solution<DnaAllocatorType>,
 {
-    fn name(&self) -> &str {
-        "AGE-MOEA-II"
-    }
-
-    fn best_solutions(&self) -> Vec<(Vec<f64>, S)> {
-        self.best_solutions.clone()
-    }
-
     /// Instantiate a new optimizer with a given meta params
     pub fn new(meta: impl Meta<'a, S, DnaAllocatorType> + 'a) -> Self {
         let population_size = meta.population_size();
@@ -188,7 +178,6 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
 
         AGEMOEA2Optimizer {
             meta: Box::new(meta),
-            best_solutions: Vec::with_capacity(population_size),
             sorting_buffer: SortingBuffer {
                 prepared_fronts: Vec::with_capacity(population_size*2),
                 objs: Vec::with_capacity(population_size),
@@ -337,21 +326,10 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
             }
         }
 
-        for best_sol in self.sorting_buffer.best_candidates.drain(..)
-        {
-            dna_allocator.deallocate(best_sol.1);
-        }
         for index in self.sorting_buffer.point_indicies_by_front[0].iter()
         {
             self.sorting_buffer.prepared_fronts[*index].front = 0;
-            let new_sol =
-                dna_allocator.clone_from_dna(&self.sorting_buffer.prepared_fronts[*index].sol);
-            self.sorting_buffer.best_candidates.push((
-                self.allocators.point_allocator.clone_vec(&self.sorting_buffer.points[*index]),
-                new_sol
-            ))
         }
-
 
         for (new_front_rank, indicies_of_candidate) in self.sorting_buffer.point_indicies_by_front.iter().enumerate().skip(1)
         {
@@ -1285,19 +1263,6 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimize
 
             runtime_solutions_processor.iteration_num(iter);
 
-            for (_, sol) in self.best_solutions.drain(..)
-            {
-                runtime_solutions_processor.dna_allocator().deallocate(sol);
-            }
-            for solution in self.sorting_buffer.best_candidates.iter() {
-                self.best_solutions.push(
-                    (
-                        solution.0.clone(),
-                        runtime_solutions_processor.dna_allocator().clone_from_dna(&solution.1)
-                    )
-                )
-            }
-
             runtime_solutions_processor.iter_solutions(
                 self.sorting_buffer.final_population.iter_mut()
                 .map(|child| &mut child.sol)
@@ -1410,7 +1375,16 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimize
         }
     }
 
-    fn best_solutions(&self) -> Vec<(Vec<f64>, S)> {
-        self.best_solutions.clone()
+    fn best_solutions(&self) -> Vec<(Vec<f64>, S)>
+    {
+        self.sorting_buffer.point_indicies_by_front[0]
+            .iter()
+            .map(|index|
+                (
+                    self.sorting_buffer.points[*index].clone(),
+                    self.sorting_buffer.prepared_fronts[*index].sol.clone()
+                )
+            )
+            .collect()
     }
 }
