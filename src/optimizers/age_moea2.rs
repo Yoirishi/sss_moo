@@ -968,7 +968,10 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> AGEMOEA2
     }
 }
 
-fn newton_raphson(points: &Vec<Vec<f64>>, extreme_points_indicies: &Vec<usize>) -> f64 {
+fn newton_raphson(
+    points: &Vec<Vec<f64>>,
+    extreme_points_indicies: &Vec<usize>
+) -> f64 {
     let mut distances = vec![0.; points.len()];
     for i in 0..points.len() {
         distances[i] = points[i]
@@ -985,8 +988,6 @@ fn newton_raphson(points: &Vec<Vec<f64>>, extreme_points_indicies: &Vec<usize>) 
 
     let index_of_minimal_distance = np_argmin_vector(&distances);
 
-    let interesting_point = points[index_of_minimal_distance].clone();
-
     let precision = 1e-6;
 
     let mut p_current = 1.0;
@@ -995,16 +996,17 @@ fn newton_raphson(points: &Vec<Vec<f64>>, extreme_points_indicies: &Vec<usize>) 
 
     let max_iteration = 100;
 
-    let count_of_objectives = interesting_point.len();
+    let count_of_objectives = points[0].len();
 
     for _ in 0..max_iteration
     {
         let mut function = 0.;
         for obj_index in 0..count_of_objectives
         {
-            if interesting_point[obj_index] >= f64::MIN_POSITIVE
+
+            if points[index_of_minimal_distance][obj_index] >= f64::MIN_POSITIVE
             {
-                function += interesting_point[obj_index].powf(p_current);
+                function += points[index_of_minimal_distance][obj_index].powf(p_current);
             }
         }
 
@@ -1015,10 +1017,10 @@ fn newton_raphson(points: &Vec<Vec<f64>>, extreme_points_indicies: &Vec<usize>) 
 
         for obj_index in 0..count_of_objectives
         {
-            if interesting_point[obj_index] >= f64::MIN_POSITIVE
+            if points[index_of_minimal_distance][obj_index] >= f64::MIN_POSITIVE
             {
-                numerator += interesting_point[obj_index].powf(function) * interesting_point[obj_index].ln();
-                denominator += interesting_point[obj_index].powf(function)
+                numerator += points[index_of_minimal_distance][obj_index].powf(function) * points[index_of_minimal_distance][obj_index].ln();
+                denominator += points[index_of_minimal_distance][obj_index].powf(function)
             }
         }
 

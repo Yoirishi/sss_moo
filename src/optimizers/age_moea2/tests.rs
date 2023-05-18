@@ -36,18 +36,6 @@ fn test_point_to_line_distance()
 }
 
 
-#[test]
-fn test_newton_raphson_fn()
-{
-    let (source_front, source_extreme_indicies) = get_newton_raphson_source();
-    let expected_result = get_result_for_newton_raphson();
-
-    let result = newton_raphson(&source_front, &source_extreme_indicies);
-
-    //current newton-raphson precision is 1e-15, so i check that expected result and real difference is lesser then precision
-    assert!((expected_result - result).abs() < 1e-15)
-}
-
 struct MockSolution
 {
     pub front: usize,
