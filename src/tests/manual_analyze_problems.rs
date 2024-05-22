@@ -106,7 +106,7 @@ fn print_best_solutions_3d_to_gif(problem: &Box<dyn Problem + Send>,
 fn new_array_optimizer_params(array_solution_evaluator: Box<dyn ArraySolutionEvaluator>) -> ArrayOptimizerParams
 {
     ArrayOptimizerParams::new(
-        65,
+        92,
         Ratio(1, 2),
         Ratio(3, 10),
         array_solution_evaluator,

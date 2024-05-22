@@ -916,14 +916,14 @@ fn eval_normalization_vec(points_on_front: &Vec<Vec<f64>>, extreme_point_indicie
         let ones_matrix = vec![1.; extreme_points.len()];
         match Hyperplane::line_alg_gauss_solve(&extreme_points, &ones_matrix) {
             Ok( plane ) => {
-                if any_in_vec_is(&plane, |val| val == f64::NAN || val == f64::NEG_INFINITY || val == f64::INFINITY)
+                if any_in_vec_is(&plane, |val| val.is_nan() || val == f64::NEG_INFINITY || val == f64::INFINITY)
                 {
                     return np_max_matrix_axis_one(&points_on_front, destination);
                 }
 
                 let prepared_normalization_vec = plane.into_iter().map(|a| 1. / a).collect::<Vec<f64>>();
 
-                if any_in_vec_is(&prepared_normalization_vec, |val| val == f64::NAN || val == f64::NEG_INFINITY || val == f64::INFINITY)
+                if any_in_vec_is(&prepared_normalization_vec, |val| val.is_nan() || val == f64::NEG_INFINITY || val == f64::INFINITY)
                 {
                     return np_max_matrix_axis_one(&points_on_front, destination);
                 }
@@ -1127,7 +1127,8 @@ fn sum_along_axis_one(source: &Vec<Vec<f64>>) -> Vec<f64>
         .collect()
 }
 
-impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimizer<S, DnaAllocatorType> for AGEMOEA2Optimizer<'a, S, DnaAllocatorType>
+impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimizer<S, DnaAllocatorType> 
+for AGEMOEA2Optimizer<'a, S, DnaAllocatorType>
     where
         S: Solution<DnaAllocatorType>,
 {

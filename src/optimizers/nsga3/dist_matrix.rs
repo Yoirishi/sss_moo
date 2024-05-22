@@ -7,6 +7,7 @@ pub struct DistMatrix<'a> {
     niches: &'a Vec<Vec<f64>>
 }
 
+
 impl<'a> DistMatrix<'a>
 {
     pub fn new(points: Vec<Vec<f64>>, niches: &'a Vec<Vec<f64>>) -> Self
