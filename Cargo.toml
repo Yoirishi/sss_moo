@@ -15,6 +15,8 @@ opt-level = 3
 lto = true
 codegen-units=1
 
+
+
 [dependencies]
 rand = "0.8.5"
 crossbeam = "0.8.1"

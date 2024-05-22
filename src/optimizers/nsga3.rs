@@ -6,17 +6,14 @@ use peeking_take_while::PeekableExt;
 use rand::prelude::*;
 use rand::seq::SliceRandom;
 
-use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::convert::identity;
 use std::error::Error;
-use std::fs::read_to_string;
 use std::iter::Sum;
 use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Sub};
-use std::panic::{catch_unwind, PanicInfo};
-use ndarray::{Array2, ArrayView1, indices_of};
-use rand_distr::num_traits;
+use itertools::Itertools;
+use rand_distr::num_traits::abs;
 use rand_distr::num_traits::real::Real;
 use crate::evaluator::Evaluator;
 use crate::{Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
@@ -104,18 +101,6 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> Optimize
 
             runtime_solutions_processor.iteration_num(iter);
 
-            self.best_solutions.clear();
-            parent_pop
-                .iter()
-                .take_while(|c| c.front == 0)
-                .for_each(|mut c| {
-                    let vals: Vec<f64> = self.values(&c.sol);
-
-                    //self.best_solutions
-                    //    .retain(|s| s.0.iter().zip(&vals).any(|(old, new)| old < new));
-
-                    self.best_solutions.push((vals, c.sol.clone()));
-                });
 
             let mut preprocess_vec = Vec::with_capacity(parent_pop.len());
             for child in parent_pop.iter_mut()
@@ -320,6 +305,7 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> NSGA3Opt
                 prepared_fronts[*index].front = new_front_rank
             }
         }
+        
         let (niche_of_individuals,
             dist_to_niche,
             dist_matrix) = associate_to_niches(&points, &self.ref_dirs, &ideal_point, &nadir_point);
@@ -331,10 +317,10 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> NSGA3Opt
             prepared_fronts[index].niche = *niche;
         }
 
-        let unique_niche = unique_values(&niche_of_individuals);
+        let unique_niche = unique_values_sorted(&niche_of_individuals);
         let unique_distances = form_matrix_by_indicies_in_dist_matrix(&dist_matrix, &unique_niche);
         let min_of_unique_dist = np_argmin_axis_zero(&unique_distances);
-        let closest = unique_values(&min_of_unique_dist);
+        let closest = unique_values_sorted(&min_of_unique_dist);
         let intersections = intersect(&array_of_fronts[0], &closest);
 
         self.best_solutions = intersections.iter()
@@ -378,13 +364,14 @@ impl<'a, S, DnaAllocatorType: CloneReallocationMemoryBuffer<S> + Clone> NSGA3Opt
                 n_remaining = n_surv - until_last_front.len()
             }
             let mut surv_front: Vec<usize> = vec![];
-            //let fronts_as_row = concatenate_matrix_rows(&array_of_fronts);
+            
             let prepared_survivours = niching(
                 last_front_len,
                 n_remaining,
                 &mut niche_count,
                 &last_front.iter().map(|index| niche_of_individuals[*index]).collect(),
-                &last_front.iter().map(|index| dist_to_niche[*index]).collect());
+                &last_front.iter().map(|index| dist_to_niche[*index]).collect()
+            );
 
             until_last_front.iter().for_each(|val| surv_front.push(*val));
             prepared_survivours.iter().for_each(|index| surv_front.push(last_front[*index]));
@@ -445,7 +432,7 @@ fn niching(pop_size: usize, n_remaining: usize, niche_count: &mut Vec<usize>, ni
     while survivors.len() < n_remaining
     {
         let mut n_select = n_remaining - survivors.len();
-        let next_niches_list = unique_values(&get_vector_according_mask(niche_of_individuals, &mask));
+        let next_niches_list = unique_values_sorted(&get_vector_according_mask(niche_of_individuals, &mask));
         let next_niche_count: Vec<usize> = next_niches_list.iter().map(|index| niche_count[*index]).collect();
         let min_niches_count = next_niche_count.iter().min().unwrap();
         let min_niches_indicies: Vec<usize> = get_indicies_of_val(&next_niche_count, min_niches_count);
@@ -512,7 +499,7 @@ fn form_matrix_by_indicies_in_row(source: &Vec<Vec<f64>>, indicies: &Vec<usize>)
     result
 }
 
-fn form_matrix_by_indicies_in_dist_matrix(source: &DistMatrix, indicies: &Vec<usize>) -> Vec<Vec<f64>> {
+fn form_matrix_by_indicies_in_dist_matrix(source: &Vec<Vec<f64>>, indicies: &Vec<usize>) -> Vec<Vec<f64>> {
     let mut result = vec![];
     for row in source.iter()
     {
@@ -532,7 +519,7 @@ pub struct Hyperplane {
     ideal_point: Vec<f64>,
     worst_point: Vec<f64>,
     nadir_point: Option<Vec<f64>>,
-    extreme_point: Option<Vec<Vec<f64>>>
+    extreme_points: Option<Vec<Vec<f64>>>
 }
 
 impl Hyperplane {
@@ -543,7 +530,7 @@ impl Hyperplane {
             ideal_point: vec![f64::MAX; dimension],
             worst_point: vec![f64::MIN; dimension],
             nadir_point: None,
-            extreme_point: None
+            extreme_points: None
         }
     }
 
@@ -563,7 +550,7 @@ impl Hyperplane {
         let mut worst_of_non_dominated_front = vec![f64::MIN; self.dimension];
         Hyperplane::update_vec_zero_axis(&mut worst_of_non_dominated_front, &non_dominated_points, |current_value, input_value| current_value < input_value);
 
-        self.form_nadir_points(&worst_of_non_dominated_front, &worst_of_population)
+        self.form_nadir_points(&worst_of_non_dominated_front, &worst_of_population, None, None, None)
     }
 
     fn form_extreme_points(&mut self, points: &Vec<Vec<f64>>)
@@ -572,7 +559,7 @@ impl Hyperplane {
 
         let mut preprocessed_points = vec![];
 
-        match &self.extreme_point {
+        match &self.extreme_points {
             Some(previous_points) => {
                 for previous_point in previous_points
                 {
@@ -607,20 +594,26 @@ impl Hyperplane {
         {
             extreme_points.push(preprocessed_points[index].clone());
         }
-        self.extreme_point = Some(extreme_points);
+        self.extreme_points = Some(extreme_points);
     }
 
-    fn form_nadir_points(&mut self, worst_of_front: &Vec<f64>, worst_of_population: &Vec<f64>)
+    fn form_nadir_points(&mut self, worst_of_front: &Vec<f64>, 
+                         worst_of_population: &Vec<f64>,
+                         extreme_points: Option<&Option<Vec<Vec<f64>>>>,
+                         ideal_point: Option<&Vec<f64>>,
+                         worst_point: Option<&Vec<f64>>,
+    )
     {
         let mut temp_points = vec![];
-        match &self.extreme_point {
+        match extreme_points.unwrap_or(&self.extreme_points) {
             None => {}
             Some(val) => {
-                temp_points = get_difference_between_matrix_and_vector( val, &self.ideal_point);
+                temp_points = get_difference_between_matrix_and_vector( val, ideal_point.unwrap_or(&self.ideal_point));
             }
         }
+        
 
-        let size_of_extreme_points = match &self.extreme_point {
+        let size_of_extreme_points = match extreme_points.unwrap_or(&self.extreme_points) {
             None => { panic!("Extreme points are empty!") }
             Some(v) => { v[0].len()}
         };
@@ -631,22 +624,22 @@ impl Hyperplane {
             Ok( plane ) => {
                 let mut intercepts: Vec<f64> = vec![];
                 Hyperplane::get_elem_divide_matrix(&mut intercepts, &plane, 1.);
-                Hyperplane::get_addict_between_arrays(&mut nadir_point, &self.ideal_point, &intercepts);
+                Hyperplane::get_addict_between_arrays(&mut nadir_point, ideal_point.unwrap_or(&self.ideal_point), &intercepts);
 
-                let result = Hyperplane::vec_all_is(
+                let result = !Hyperplane::vec_all_close(
                     &Hyperplane::multiply_matrix_and_vector(&temp_points, &plane),
                     &ones_matrix,
-                    |elem1, elem2| elem1 > elem2) ||
+                    None, None, None) ||
                     Hyperplane::vec_all_is(&intercepts,
                                            &vec![1e-6;intercepts.len()],
                                            |elem1, elem2| elem1 <= elem2);
 
                 match result {
                     true => {
-                        nadir_point = Hyperplane::get_smaller_coordinate_from_two_points(&nadir_point, &self.worst_point);
+                        nadir_point = worst_of_front.clone()
                     }
                     false => {
-                        nadir_point = worst_of_front.clone()
+                        nadir_point = Hyperplane::get_smaller_coordinate_from_two_points(&nadir_point, worst_point.unwrap_or(&self.worst_point));
                     }
                 }
             }
@@ -654,10 +647,11 @@ impl Hyperplane {
         };
 
         let compare_vector = Hyperplane::get_compare_vec_between_two(
-            &get_arithmetic_result_between_vectors( &nadir_point, &self.ideal_point, |a , b| a - b),
+            &get_arithmetic_result_between_vectors( &nadir_point, ideal_point.unwrap_or(&self.ideal_point), |a , b| a - b),
             &vec![1e-6;nadir_point.len()],
             |a , b| a <= b
         );
+        
         nadir_point = Hyperplane::get_mixed_vector_according_compare_vector(&nadir_point, worst_of_population, &compare_vector);
         self.nadir_point = Some(nadir_point)
     }
@@ -838,6 +832,24 @@ impl Hyperplane {
         return result;
     }
 
+    /// Converts the given conversion matrix to upper triangular form by performing row conversions.
+    ///
+    /// # Arguments
+    ///
+    /// * `conversion_matrix` - A mutable reference to the conversion matrix.
+    /// * `last_index` - The index of the last row to consider during conversion.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the last index is less than 1.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut matrix = vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0], vec![7.0, 8.0, 9.0]];
+    /// let last_index = &2;
+    /// upper_triangular_matrix_row_conversion(&mut matrix, last_index);
+    /// ```
     fn upper_triangular_matrix_row_conversion(conversion_matrix: &mut Vec<Vec<f64>>, last_index: &usize)
     {
         if *last_index < 1
@@ -858,6 +870,21 @@ impl Hyperplane {
         }
     }
 
+    
+    /// Normalize a matrix row by dividing each element by the conversion coefficient.
+    ///
+    /// # Arguments
+    ///
+    /// * `pivot_index` - The index of the pivot element in the row.
+    /// * `conversion_row` - A mutable reference to the row that needs to be normalized.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let mut row = vec![2.0, 4.0, 6.0];
+    /// normalize_matrix_row(&1, &mut row);
+    /// assert_eq!(row, vec![0.5, 1.0, 1.5]);
+    /// ```
     fn normalize_matrix_row(pivot_index: &usize, conversion_row: &mut Vec<f64>)
     {
         let conversion_coefficient = conversion_row[*pivot_index];
@@ -869,7 +896,6 @@ impl Hyperplane {
 
     pub(crate) fn multiply_matrix_and_vector<T:Sum + Mul<Output = T> + Copy>(matrix: &Vec<Vec<T>>, vec: &Vec<T>) -> Vec<T>
     {
-        //vec.iter().enumerate().map(|(index, &elem)| elem * matrix.clone().into_iter().nth(index).unwrap().into_iter().sum::<T>()).collect::<Vec<T>>()
         matrix.iter().map(|row| row.clone().into_iter().zip(vec.clone()).map(|(a, b)| a*b).sum()).collect::<Vec<T>>()
     }
 
@@ -890,6 +916,39 @@ impl Hyperplane {
         source1.iter().zip(source2).all(|(&elem1, &elem2)| compare_fn(elem1, elem2))
     }
 
+    pub(crate) fn vec_all_close(source1: &Vec<f64>, source2: &Vec<f64>, rel_tolerance: Option<f64>, abs_tolerance: Option<f64>, equal_nan: Option<bool>) -> bool {
+        source1.iter().zip(source2).all(
+            |(&elem1, &elem2)|
+                abs(elem1 - elem2) <= abs_tolerance.unwrap_or(1e-8) + rel_tolerance.unwrap_or(1e-5) * abs(elem2) ||
+                match equal_nan.unwrap_or(false) {
+                    true => {
+                        elem1.is_nan() && elem2.is_nan()
+                    }
+                    false => {
+                        false
+                    }
+                }
+        )
+    }
+    
+    /// Returns a Vec containing the smaller coordinate from two given points.
+    ///
+    /// # Arguments
+    ///
+    /// * `first` - A reference to a Vec representing the first point.
+    /// * `second` - A reference to a Vec representing the second point.
+    ///
+    /// # Generic Parameters
+    /// * `T` - Type of the coordinates in the Vec. It should implement the Copy and PartialOrd traits.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let first = vec![1, 4, 5];
+    /// let second = vec![2, 3, 6];
+    /// let result = get_smaller_coordinate_from_two_points(&first, &second);
+    /// assert_eq!(result, vec![1, 3, 5]);
+    /// ```
     fn get_smaller_coordinate_from_two_points<T: Copy + PartialOrd>(first: &Vec<T>, second: &Vec<T>) -> Vec<T>
     {
         let mut result = vec![];
@@ -906,6 +965,36 @@ impl Hyperplane {
         result
     }
 
+    /// Compare elements from two vectors based on given comparison function.
+    ///
+    /// # Arguments
+    ///
+    /// * `first` - The reference to the first vector.
+    /// * `second` - The reference to the second vector.
+    /// * `compare_fn` - The comparison function that takes two elements of type `T`
+    ///                  and returns a boolean value indicating whether the elements
+    ///                  are equal or not.
+    ///
+    /// # Returns
+    ///
+    /// A new vector containing the result of the comparison between corresponding
+    /// elements of the two input vectors. The length of the returned vector will be
+    /// equal to the minimum length of the two input vectors.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let vec1 = vec![1, 2, 3];
+    /// let vec2 = vec![1, 4, 3];
+    ///
+    /// fn compare_fn(a: i32, b: i32) -> bool {
+    ///     a == b
+    /// }
+    ///
+    /// let result = get_compare_vec_between_two(&vec1, &vec2, compare_fn);
+    ///
+    /// assert_eq!(result, vec![true, false, true]);
+    /// ```
     fn get_compare_vec_between_two<T, CompareFn>(first: &Vec<T>, second: &Vec<T>, compare_fn: CompareFn) -> Vec<bool>
         where T: Copy,
               CompareFn: Fn(T, T) -> bool
@@ -918,23 +1007,84 @@ impl Hyperplane {
         result
     }
 
+    /// `get_mixed_vector_according_compare_vector` Function Description
+    ///
+    /// This function takes three vectors as arguments: `first`, `second`, and `compare_vec`. The function then compares elements in the `first` and `second` vectors based on the boolean values in the `compare_vec`.
+    ///
+    /// # Arguments
+    ///
+    /// * `first` - A vector of type T elements.
+    /// * `second` - A vector of type T elements.
+    /// * `compare_vec` - A vector of booleans. The size should ideally be equal to `first` and `second`.
+    ///
+    /// # Return
+    ///
+    /// The function returns a new vector where for every true value in the comparison vector, the corresponding index's element from the `second` vector is picked, else the element from the `first` vector.
+    ///
+    /// If the `compare_vec` has less elements than `first` and `second`, then elements after the size of `compare_vec` will be from `first` vector.
+    /// If `first` and `second` have different size, the extra elements from the larger vector will not be included in the result.
+    ///
+    /// This function assumes that vectors `first` and `second` have the same length.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let a = vec![1, 2, 3];
+    /// let b = vec![4, 5, 6];
+    /// let c = vec![true, false, true];
+    ///
+    /// let result = get_mixed_vector_according_compare_vector(&a, &b, &c);
+    /// assert_eq!(result, [4, 2, 6]);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// The function does not handle panic scenarios. It is advised to ensure that the lengths of the `first`, `second`, and `compare_vec` vectors are equal before calling the function to avoid unexpected results.
+    ///
+    /// # Safety
+    ///
+    /// This function doesn't use any Unsafe Rust code.
     fn get_mixed_vector_according_compare_vector<T: Copy>(first: &Vec<T>, second: &Vec<T>, compare_vec: &Vec<bool>) -> Vec<T>
     {
         let mut result = vec![];
         for ((&elem1, &elem2), &condition) in first.iter().zip(second).zip(compare_vec)
         {
             if condition {
-                result.push(elem1.clone())
+                result.push(elem2.clone())
             }
             else
             {
-                result.push(elem2.clone())
+                result.push(elem1.clone())
             }
         }
         result
     }
 }
 
+/// Takes a source vector and a mask vector as input and returns a new vector containing
+/// elements from the source vector at positions where the mask is true.
+///
+/// # Arguments
+///
+/// * `source` - A reference to the source vector.
+/// * `mask` - A reference to the mask vector.
+///
+/// # Generic Types
+///
+/// * `T` - The type of elements in the source vector. It must implement the Copy trait.
+///
+/// # Returns
+///
+/// A new vector containing elements from the source vector at positions where the mask is true.
+///
+/// # Examples
+///
+/// ```
+/// let source = vec![1, 2, 3, 4, 5];
+/// let mask = vec![true, false, true, false, true];
+/// let result = sss_moo::optimizers::nsga3::get_vector_according_mask(&source, &mask);
+/// assert_eq!(result, vec![1, 3, 5]);
+/// ```
 pub fn get_vector_according_mask<T: Copy>(source: &Vec<T>, mask: &Vec<bool>) -> Vec<T>
 {
     let mut result = vec![];
@@ -962,26 +1112,47 @@ fn concatenate_matrix_zero_axis<T: Copy>(first_matrix: &Vec<Vec<T>>, second_matr
 }
 
 
-pub fn concatenate_matrix_rows<T: Copy>(matrix: &Vec<Vec<T>>) -> Vec<T> {
-    let mut result = vec![];
-    for row in matrix
-    {
-        for &elem in row
-        {
-            result.push(elem);
-        }
-    }
-    result
+/// Concatenates all the rows of a matrix into a single vector.
+///
+/// # Arguments
+///
+/// * `matrix` - A reference to a matrix represented as a slice of vectors.
+///
+/// # Generic Parameters
+///
+/// * `T` - The type of elements in the matrix. It must implement the `Copy` trait.
+///
+/// # Returns
+///
+/// A new vector containing all the elements of the matrix, in row-wise order.
+///
+/// # Examples
+///
+/// ```
+/// use sss_moo::optimizers::nsga3::concatenate_matrix_rows;
+/// let matrix = vec![vec![1, 2, 3], vec![4, 5, 6], vec![7, 8, 9]];
+/// let result = concatenate_matrix_rows(&matrix);
+/// assert_eq!(result, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+/// ```
+pub fn concatenate_matrix_rows<T: Copy>(matrix: &[Vec<T>]) -> Vec<T> {
+    matrix.iter().flat_map(|row| row.iter().cloned()).collect()
 }
 
 
-fn associate_to_niches<'a>(points: &'a Vec<Vec<f64>>, niches: &'a Vec<Vec<f64>>, ideal_point: &Vec<f64>, nadir_point: &Vec<f64>)
-                       -> (Vec<usize>, Vec<f64>, DistMatrix<'a>)
+/// Associates points to niches based on their distances.
+///
+/// The function takes in a reference to a vector of points, `points`, and a reference to a vector of niches, `niches`.
+/// It also takes in a reference to the ideal point, `ideal_point`, and a reference to the nadir point, `nadir_point`.
+/// It returns a tuple containing the niche indices for each individual point, the distances to niches, and the distance matrix.
+fn associate_to_niches<'a>(points: &'a Vec<Vec<f64>>, niches: &'a Vec<Vec<f64>>, ideal_point: &Vec<f64>, nadir_point: &Vec<f64>,)
+                       -> (Vec<usize>, Vec<f64>, Vec<Vec<f64>>)
 {
     let mut denom = get_arithmetic_result_between_vectors(&nadir_point, &ideal_point, |a, b| a - b);
     denom = replace_zero_coordinates_in_point(&denom, |a| *a == 0., 1e-12);
-    let normalized = get_difference_between_matrix_and_vector(&points, ideal_point);
-    let distance_matrix = DistMatrix::new(normalized, &niches);
+    
+    let normalized = get_result_of_divide_matrix_by_vector(&get_difference_between_matrix_and_vector(&points, ideal_point), &denom);
+    
+    let distance_matrix = calc_perpendicular_distance(&normalized, &niches);
     let niche_of_individual = min_distances_indicies(&distance_matrix);
     let points_count = points.len();
     let mut arranged_by_points_count = vec![];
@@ -995,7 +1166,6 @@ fn associate_to_niches<'a>(points: &'a Vec<Vec<f64>>, niches: &'a Vec<Vec<f64>>,
         dist_to_niches,
         distance_matrix
     )
-
 }
 
 pub fn replace_zero_coordinates_in_point<T, ReplaceFn>(source: &Vec<T>, replace_fn: ReplaceFn, target_value: T) -> Vec<T>
@@ -1099,7 +1269,7 @@ pub fn normalize_matrix_by_axis_one(mat: &[Vec<f64>]) -> Vec<f64>
     for row in mat {
         let mut sum = 0.0;
         for item in row {
-            sum += (item * item);
+            sum += item * item;
         }
         result.push(sum.sqrt());
     }
@@ -1271,7 +1441,7 @@ pub fn np_argmin_axis_one<T: Copy + PartialOrd>(matrix: &Vec<Vec<T>>) -> Vec<usi
     min_indices
 }
 
-fn min_distances_indicies(matrix: &DistMatrix) -> Vec<usize>
+fn min_distances_indicies(matrix: &Vec<Vec<f64>>) -> Vec<usize>
 {
     let mut min_indices = Vec::with_capacity(matrix.len());
 
@@ -1320,12 +1490,38 @@ fn get_values_from_matrix_by_row_indicies_and_column_indicies<T:Copy>(matrix: &V
     result
 }
 
-fn get_values_from_dist_matrix_by_row_indicies_and_column_indicies(matrix: &DistMatrix, row_indicies: &Vec<usize>, column_indicies: &Vec<usize>) -> Vec<f64>
+/// Retrieve values from the given distance matrix based on the given row indices and column indices.
+///
+/// # Arguments
+///
+/// * `matrix` - The distance matrix represented as a vector of vectors of type f64.
+/// * `row_indices` - The indices of the rows to retrieve values from.
+/// * `column_indices` - The indices of the columns to retrieve values from.
+///
+/// # Returns
+///
+/// A vector containing the values from the distance matrix that correspond to the given row and column indices.
+/// The values are arranged in the same order as the provided row and column indices.
+///
+/// # Example
+///
+/// ```rust
+/// let matrix = vec![
+///     vec![1.0, 2.0, 3.0],
+///     vec![4.0, 5.0, 6.0],
+///     vec![7.0, 8.0, 9.0],
+/// ];
+/// let row_indices = vec![0, 1];
+/// let column_indices = vec![1, 2];
+/// let result = get_values_from_dist_matrix_by_row_indicies_and_column_indicies(&matrix, &row_indices, &column_indices);
+/// assert_eq!(result, vec![2.0, 6.0]);
+/// ```
+fn get_values_from_dist_matrix_by_row_indicies_and_column_indicies(matrix: &Vec<Vec<f64>>, row_indicies: &Vec<usize>, column_indicies: &Vec<usize>) -> Vec<f64>
 {
     let mut result = Vec::with_capacity(row_indicies.len());
     for (row_index, column_index) in row_indicies.iter().zip(column_indicies)
     {
-        result.push(matrix.get_row(*row_index)[*column_index])
+        result.push(matrix[*row_index][*column_index])
     }
     result
 }
@@ -1389,12 +1585,12 @@ fn find_largest_value_in_vec<T:Copy + PartialOrd>(vec: &Vec<T>) -> T
 }
 
 
-fn unique_values(input: &Vec<usize>) -> Vec<usize> {
+fn unique_values_sorted(input: &Vec<usize>) -> Vec<usize> {
     let mut set = HashSet::new();
     for value in input {
         set.insert(*value);
     }
-    set.into_iter().collect()
+    set.into_iter().sorted().collect()
 }
 
 fn np_argmin_axis_zero(matrix: &Vec<Vec<f64>>) -> Vec<usize> {
