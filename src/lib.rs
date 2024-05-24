@@ -63,7 +63,7 @@ pub trait Meta<'a, S: Solution<DnaAllocatorType>, DnaAllocatorType: CloneRealloc
     /// Return a population size.
     /// This is used by an optimizer for a pool of solution candidates
     fn population_size(&self) -> usize {
-        20
+        92
     }
 
     /// A ratio to determine how often to perform a crossover operation

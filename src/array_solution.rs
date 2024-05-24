@@ -216,3 +216,49 @@ impl SolutionsRuntimeProcessor<ArraySolution, SimpleCloneAllocator<ArraySolution
         &mut self.simple_allocator
     }
 }
+
+pub struct SolutionsRuntimeArrayProcessorWithStopAfterNumberOfGeneration
+{
+    current_iteration_num: usize,
+    stop_after_nth_generation: usize,
+    simple_allocator: SimpleCloneAllocator<ArraySolution>
+}
+
+impl SolutionsRuntimeArrayProcessorWithStopAfterNumberOfGeneration
+{
+    pub fn new(stop_after_nth_generation: usize) -> Self
+    {
+        SolutionsRuntimeArrayProcessorWithStopAfterNumberOfGeneration {
+            current_iteration_num: 0,
+            stop_after_nth_generation,
+            simple_allocator: SimpleCloneAllocator { phantom: Default::default() },
+        }
+    }
+}
+
+
+impl SolutionsRuntimeProcessor<ArraySolution, SimpleCloneAllocator<ArraySolution>> for SolutionsRuntimeArrayProcessorWithStopAfterNumberOfGeneration
+{
+    fn new_candidates(&mut self, candidates: Vec<&mut ArraySolution>) {
+        for array_solution in candidates
+        {
+            array_solution.calc_objectives()
+        }
+    }
+
+    fn iter_solutions(&mut self, _candidates: Vec<&mut ArraySolution>) {
+
+    }
+
+    fn iteration_num(&mut self, num: usize) {
+        self.current_iteration_num = num;
+    }
+
+    fn needs_early_stop(&mut self) -> bool {
+        self.current_iteration_num >= self.stop_after_nth_generation
+    }
+
+    fn dna_allocator(&mut self) -> &mut SimpleCloneAllocator<ArraySolution> {
+        &mut self.simple_allocator
+    }
+}
