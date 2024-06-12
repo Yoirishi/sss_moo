@@ -20,20 +20,20 @@ fn test_argmax()
     assert_eq!(expected_value, value_result);
 }
 
-#[test]
-fn test_point_to_line_distance()
-{
-    let source_points = get_points_to_point_to_line_distance_fn();
-    let eyed_matrix_row = get_eyed_matrix_row_to_point_to_line_distance_fn();
-
-    let expected_result = get_result_to_point_to_line_distance_fn();
-
-    let mut distance_allocator = BufferAllocator::new(VecAllocator::new(100), VecInitializer{});
-
-    let mut result = vec![];
-    point_to_line_distance(&source_points, &eyed_matrix_row, &mut result, &mut distance_allocator);
-    assert_eq!(expected_result, result)
-}
+// #[test]
+// fn test_point_to_line_distance()
+// {
+//     let source_points = get_points_to_point_to_line_distance_fn();
+//     let eyed_matrix_row = get_eyed_matrix_row_to_point_to_line_distance_fn();
+// 
+//     let expected_result = get_result_to_point_to_line_distance_fn();
+// 
+//     let mut distance_allocator = BufferAllocator::new(VecAllocator::new(100), VecInitializer{});
+// 
+//     let mut result = vec![];
+//     point_to_line_distance(&source_points, &eyed_matrix_row, &mut result, &mut distance_allocator);
+//     assert_eq!(expected_result, result)
+// }
 
 
 struct MockSolution

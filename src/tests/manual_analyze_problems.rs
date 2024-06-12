@@ -30,6 +30,8 @@ use crate::problem::dtlz::dtlz6::Dtlz6;
 use crate::problem::dtlz::dtlz7::Dtlz7;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::time::Instant;
+use rand_distr::num_traits::abs;
+use crate::optimizers::nsga3::NSGA3Optimizer;
 
 fn optimize_and_get_best_solutions(optimizer: &mut Box<dyn Optimizer<ArraySolution, SimpleCloneAllocator<ArraySolution>>>,
                                    solutions_runtime_array_processor: Box<&mut dyn SolutionsRuntimeProcessor<ArraySolution, SimpleCloneAllocator<ArraySolution>>>,
@@ -260,7 +262,7 @@ impl ProblemsSolver
         write!(output, "{}", table.to_string()).unwrap();
     }
 
-    fn save_metric_successfulness_to_file(&self, output_file: &std::path::Path, table_lines: &Vec<Vec<String>>, optimizers_title: &Vec<String>, tasks_result: &Vec<(usize, usize, f64)>, std_dev_problems: &Vec<f64>)
+    fn save_metric_successfulness_to_file(&self, output_file: &std::path::Path, table_lines: &Vec<Vec<String>>, optimizers_title: &Vec<String>, tasks_result: &Vec<(usize, usize, f64)>, mean_random_convergence_problems: &Vec<f64>)
     {
         let mut table_results = self.gen_table_results_from_table_lines(table_lines);
 
@@ -268,11 +270,11 @@ impl ProblemsSolver
 
         for result in tasks_result
         {
-            let std_dev = std_dev_problems[result.1];
+            let mean_random_convergence = mean_random_convergence_problems[result.1];
             let best_metric = self.test_problems[result.1].1.best_metric();
             let metric = result.2;
 
-            let successfulness = (1.0 - (metric - best_metric) / (std_dev - best_metric)) * 100.0;
+            let successfulness = (1.0 - abs(metric - best_metric) / abs(mean_random_convergence - best_metric)) * 100.0;
 
             mean_successfulness[result.0 - 1] += successfulness;
 
@@ -288,7 +290,7 @@ impl ProblemsSolver
 
         for result in tasks_result
         {
-            let std_dev = std_dev_problems[result.1];
+            let std_dev = mean_random_convergence_problems[result.1];
             let best_metric = self.test_problems[result.1].1.best_metric();
             let metric = result.2;
 
@@ -334,16 +336,16 @@ impl ProblemsSolver
         let self_dir_metric = String::from(self_dir_metric.to_str().unwrap());
         multi_threaded_runtime.block_on(async move {
             let mut tasks = vec![];
-            let mut problem_std_dev_tasks = vec![];
+            let mut problem_mean_random_convergence_tasks = vec![];
 
             for test_problem in &self.test_problems
             {
                 let mut problems_results_table = vec!["".to_string(); self.optimizer_creators.len() + 1];
 
-                let std_dev_problem = test_problem.1.clone();
-                let std_dev_evaluator = test_problem.0.clone();
-                problem_std_dev_tasks.push(tokio::spawn(async move {
-                    calc_std_dev_for_problem(&std_dev_problem, &std_dev_evaluator)
+                let mean_random_convergence_problem = test_problem.1.clone();
+                let mean_random_convergence_evaluator = test_problem.0.clone();
+                problem_mean_random_convergence_tasks.push(tokio::spawn(async move {
+                    calc_mean_random_convergence_for_problem(&mean_random_convergence_problem, &mean_random_convergence_evaluator)
                 }));
 
                 problems_results_table[0] = test_problem.1.name().to_string();
@@ -436,10 +438,10 @@ impl ProblemsSolver
                 optimizers_title.push(optimizer_name.clone());
             }
 
-            let mut std_dev_problems = vec![];
-            for task in problem_std_dev_tasks
+            let mut mean_random_convergence_problems = vec![];
+            for task in problem_mean_random_convergence_tasks
             {
-                std_dev_problems.push(task.await.unwrap());
+                mean_random_convergence_problems.push(task.await.unwrap());
             }
 
             let mut tasks_result = vec![];
@@ -453,7 +455,7 @@ impl ProblemsSolver
                 &table_lines,
                 &optimizers_title,
                 &tasks_result,
-                &std_dev_problems
+                &mean_random_convergence_problems
             );
 
             self.save_convergence_metric_to_file(
@@ -593,6 +595,8 @@ impl ProblemsSolver
     }
 }
 
+
+
 fn dtlz_test_problems(n_var: usize, n_obj: usize) -> Vec<(Box<dyn ArraySolutionEvaluator + Send>, Box<dyn Problem + Send>)> {
     let mut test_problems = vec![];
 
@@ -649,6 +653,37 @@ fn calc_std_dev_for_problem(problem: &Box<dyn Problem + Send>, evaluator: &Box<d
     (sum_diff / count as f64).sqrt()
 }
 
+fn calc_mean_random_convergence_for_problem(problem: &Box<dyn Problem + Send>, evaluator: &Box<dyn ArraySolutionEvaluator + Send>) -> f64
+{
+    let mut x = vec![0.0; evaluator.x_len()];
+
+    let mut rng = thread_rng();
+
+    let count = 10_000_000;
+
+    let mut metrics = vec![];
+
+    for _ in 0..count
+    {
+        for x_i in x.iter_mut()
+        {
+            *x_i = rng.gen_range(evaluator.min_x_value()..=evaluator.max_x_value());
+        }
+
+        let metric = problem.convergence_metric(&x);
+
+        metrics.push(metric);
+    }
+
+    let mut sum = 0.0;
+    for metric in metrics
+    {
+        sum += (metric);
+    }
+
+    (sum / count as f64)
+}
+
 #[test]
 #[ignore]
 fn print_std_dev_for_metrics()
@@ -676,8 +711,8 @@ fn print_3d_images_for_optimizers() {
         test_problems,
         vec![
             //|optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)),
-            //|optimizer_params: ArrayOptimizerParams| Box::new(nsga3_final::NSGA3Optimizer::new(optimizer_params, ReferenceDirections::new(3, 5).reference_directions))
-            |optimizer_params: ArrayOptimizerParams| Box::new(AGEMOEA2Optimizer::new(optimizer_params))
+            |optimizer_params: ArrayOptimizerParams| Box::new(nsga3::NSGA3Optimizer::new(optimizer_params, ReferenceDirections::new(3, 12).reference_directions))
+            // |optimizer_params: ArrayOptimizerParams| Box::new(AGEMOEA2Optimizer::new(optimizer_params))
         ],
     );
 
@@ -691,9 +726,9 @@ fn calc_output_metric_for_optimizers() {
 
     let mut test_problems = vec![];
 
-    for n_var in vec![4, 7, 15, 20, 30]
+    for n_var in vec![/*4,*/ 7, 10, 12]
     {
-        for n_obj in vec![3, 5, 10, 15, 25]
+        for n_obj in vec![/*3,*/ 5, 7]
         {
             if n_obj >= n_var
             {
@@ -707,11 +742,11 @@ fn calc_output_metric_for_optimizers() {
     let problem_solver = ProblemsSolver::new(
         test_problems,
         vec![
-            //|optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)),
-            //|optimizer_params: ArrayOptimizerParams| {
-            //    let count_of_objectives = optimizer_params.objectives().len();
-            //    Box::new(nsga3_final::NSGA3Optimizer::new(optimizer_params, ReferenceDirections::new(count_of_objectives, 5).reference_directions))
-            //},
+            // |optimizer_params: ArrayOptimizerParams| Box::new(NSGA3Optimizer::new(optimizer_params)),
+            |optimizer_params: ArrayOptimizerParams| {
+               let count_of_objectives = optimizer_params.objectives().len();
+               Box::new(nsga3::NSGA3Optimizer::new(optimizer_params, ReferenceDirections::new(count_of_objectives, 5).reference_directions))
+            },
             |optimizer_params: ArrayOptimizerParams| Box::new(AGEMOEA2Optimizer::new(optimizer_params))
         ],
     );
